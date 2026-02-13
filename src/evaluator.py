@@ -15,7 +15,12 @@ class PedagogicalEvaluator:
             self.rubrics = yaml.safe_load(f)
         
         # Initialize clients
-        self.anthropic_client = instructor.from_anthropic(Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY")))
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            print("ERROR: ANTHROPIC_API_KEY not found in environment!")
+        
+        # Initialize Instructor-wrapped client
+        self.anthropic_client = instructor.from_anthropic(Anthropic(api_key=api_key))
         
         # Backup: Gemini
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
