@@ -1,0 +1,13 @@
+# Global settings for segmentation and extraction
+
+segmentation:
+  max_pages_per_segment: 20
+  regex_patterns:
+    - '^Chapter \d+'
+    - '^Module \d+'
+    - '^Section \d+'
+    - "^Part [A-Z]"
+
+extraction:
+  use_tables: true
+  min_text_length: 100  # Ignore segments with too little text
