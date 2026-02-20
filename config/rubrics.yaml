@@ -2,18 +2,24 @@
 # Each rubric is scored from 1 to 10.
 
 goal_focus:
-  description: "Does the text concentrate on explaining core concepts relevant to its stated objective, or does it include unnecessary digressions and fluff?"
+  description: "Does the text concentrate on explaining core concepts relevant to its stated objective, or does it include unnecessary digressions and fluff? It should prioritize 'Must-Know' information over supplemental details."
 text_readability:
-  description: "How accessible is the language used? Does the learner spend effort understanding terminology rather than concepts?"
+  description: "How accessible is the language used? Does the learner spend effort understanding terminology rather than concepts? Ensure content is grammatically correct and avoids ambiguities."
 pedagogical_clarity:
-  description: "Does the text avoid unexplained jargon? Is the sentence structure appropriate for the intended audience?"
+  description: "Does the text avoid unexplained jargon? Is the sentence structure appropriate for the intended audience? Technical terminology must be defined consistently upon first use."
 prerequisite_alignment:
-  description: "Are foundational concepts introduced before dependent ones? Are prerequisites clearly stated when assumed?"
+  description: "Are foundational concepts introduced before dependent ones? Are prerequisites clearly stated when assumed? Objectives should be logically sequenced to contribute to the overall program goal."
 fluidity_continuity:
   description: "Do transitions between paragraphs and modules feel coherent, or does the content jump abruptly between unrelated topics?"
 structural_usability:
-  description: "Is the course logically organized? Are navigation instructions clear? Boundaries, elements, and guidelines explicit?"
+  description: "Is the course logically organized? Are navigation instructions clear? Boundaries, elements, and guidelines explicit? Technical requirements and support resources should be easily locatable."
 example_concreteness:
-  description: "Are examples concrete, relatable, and plausible representations of real-world situations?"
+  description: "Are examples concrete, relatable, and plausible representations of real-world situations? Scenarios should be realistic and job-based."
 example_coherence:
   description: "Are examples consistent and thematically connected across sections?"
+
+# New Dimensions from V2
+business_relevance:
+  description: "Does the content directly address identified performance gaps? Are specific, practical takeaways immediately applicable to learner goals?"
+instructional_alignment:
+  description: "Are instructional materials current, accurate, and professionally presented? Is the relationship between materials, activities, and assessments clear and effective?"
