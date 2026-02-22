@@ -73,8 +73,8 @@
 **Date:** 2026-02-22
 **Status:** Answered
 
-**Question:** How should the final "course-level" score be aggregated from the individual section scores?
-**Answer:** By mathematically averaging the section scores.
+**Question:** How should the final "course-level" score be aggregated from the individual section scores? (e.g. simple mathematical average, or a final LLM summarization call?)
+**Answer:** By mathematically averaging the section scores across the 10 dimensions.
 
 ## Q-009: API Failure Handling
 **Phase:** Requirements

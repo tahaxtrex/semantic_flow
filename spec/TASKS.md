@@ -1,47 +1,47 @@
 # Task Breakdown
 
 ## Phase: Setup & Core Scaffold
-- [ ] TASK-001: Initialize Python project structure (`src/`, `config/`, data directories) and `requirements.txt` / `.env.example`.
+- [x] TASK-001: Initialize Python project structure (`src/`, `config/`, data directories) and `requirements.txt` / `.env.example`.
   - Spec ref: CON-002, NFR-004
   - Notes: Install libraries like `pdfplumber`, `anthropic`, `google-generativeai`, `pydantic`.
-- [ ] TASK-002: Create `config/rubrics.yaml` mimicking the 8 dimensions.
+- [x] TASK-002: Create `config/rubrics.yaml` mimicking the 10 dimensions.
   - Spec ref: NFR-002
-  - Notes: Requires extracting the 8 rubrics definitions from domain knowledge.
-- [ ] TASK-003: Implement `main.py` CLI orchestrator with `argparse`.
+  - Notes: Requires extracting the 10 rubrics definitions from domain knowledge.
+- [x] TASK-003: Implement `main.py` CLI orchestrator with `argparse`.
   - Spec ref: CON-002
   - Notes: Define commands like `--input`, `--output`. Wire up logging to standard out and `data/evaluate.log`.
 
 ## Phase: Segmentation & Metadata
-- [ ] TASK-004: Implement `metadata.py`.
+- [x] TASK-004: Implement `metadata.py`.
   - Spec ref: FR-001, FR-002, ADR-003
   - Notes: Must check for `{basename}.json|.txt|.html` adjacent to the PDF, and parse it. Include a fallback `extract_metadata_from_pdf()` using regex or pure text parsing.
-- [ ] TASK-005: Implement `segmenter.py` (Header detection).
+- [x] TASK-005: Implement `segmenter.py` (Header detection).
   - Spec ref: FR-003, ADR-001, ADR-005
   - Notes: Use `pdfplumber` to read text blocks. Try to identify font-size/formatting heuristics to group blocks by header.
-- [ ] TASK-006: Implement `segmenter.py` (Safe boundary fallback chunking).
+- [x] TASK-006: Implement `segmenter.py` (Safe boundary fallback chunking).
   - Spec ref: FR-004, ADR-001
   - Notes: If a header-grouped block exceeds X characters, iteratively split it on the nearest newline or sentence punctuation (`.`, `?`, `!`).
 
 ## Phase: LLM Evaluation
-- [ ] TASK-007: Implement structural JSON schemas using Pydantic for LLM Responses.
+- [x] TASK-007: Implement structural JSON schemas using Pydantic for LLM Responses.
   - Spec ref: FR-007
   - Notes: Maps to the `rubrics.yaml` definitions.
-- [ ] TASK-008: Implement `evaluator.py` (Claude integration).
+- [x] TASK-008: Implement `evaluator.py` (Claude integration).
   - Spec ref: FR-005, FR-006
   - Notes: Formulate system prompt injecting rubrics + metadata + section text. Force structured JSON outputs.
-- [ ] TASK-009: Implement `evaluator.py` (Gemini fallback iteration).
+- [x] TASK-009: Implement `evaluator.py` (Gemini fallback iteration).
   - Spec ref: FR-006, ADR-002
   - Notes: Wrap Claude call in `try/except`. On RateLimit/Auth/Server errors, try Gemini. If Gemini throws exceptions, raise hard error and `sys.exit(1)`.
 
 ## Phase: Aggregation & Export
-- [ ] TASK-010: Implement `aggregator.py`.
+- [x] TASK-010: Implement `aggregator.py`.
   - Spec ref: FR-008
-  - Notes: Iterate all Segment evaluations. Calculate the mathematical mean for each of the 8 dimensions.
-- [ ] TASK-011: Implement `exporter.py`.
+  - Notes: Iterate all Segment evaluations. Calculate the mathematical mean for each of the 10 dimensions.
+- [x] TASK-011: Implement `exporter.py`.
   - Spec ref: FR-007, ADR-004
   - Notes: Stitch everything together (metadata, averages, specific segment texts, reasoning) into a single valid JSON file in `--output`.
 
 ## Phase: Finalization
-- [ ] TASK-012: Ensure logging framework records execution events cleanly to standard out.
-- [ ] TASK-013: Write `test_segmenter.py` and other core unit tests.
-- [ ] TASK-014: Flesh out `guide.md` with CLI usage instructions and JSON structure definition.
+- [x] TASK-012: Ensure logging framework records execution events cleanly to standard out.
+- [x] TASK-013: Write `test_segmenter.py` and other core unit tests.
+- [x] TASK-014: Flesh out `guide.md` with CLI usage instructions and JSON structure definition.

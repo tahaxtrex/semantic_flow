@@ -13,6 +13,14 @@
 - 14 atomic executable tasks have been written.
 - Ready to move to **Phase 5 (Implementation)**.
 
+## 2026-02-22 — Dimension Count Corrected
+**Type:** Documentation fix
+**What changed:** 
+- Updated `spec/SPEC.md`, `spec/TASKS.md`, and project tracker to note 10 dimensions instead of 8.
+**Why it changed:** User observed that the codebase and config actually evaluate 10 dimensions, but the spec documentation incorrectly stated 8.
+**Impact:** 
+- Documentation alignment
+
 ## 2026-02-22 — Model Selection Updated
 **Type:** Requirements revision
 **What changed:** 

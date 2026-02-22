@@ -28,7 +28,7 @@
 
 ## `3. Pedagogical Quality Dimensions (Evaluation Rubrics)`
 
-`This project operationalizes pedagogical quality using eight structured rubrics. These rubrics define the evaluation framework and are treated as measurable dimensions rather than subjective impressions.`
+`This project operationalizes pedagogical quality using ten structured rubrics. These rubrics define the evaluation framework and are treated as measurable dimensions rather than subjective impressions.`
  
  ## `4. Pedagogic dimentios`
 `rubrics are available in the rubrics.yaml file`
