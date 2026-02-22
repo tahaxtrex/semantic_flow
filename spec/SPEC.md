@@ -26,7 +26,7 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 - **FR-003 (Deterministic Segmentation):** The system shall segment the PDF deterministically using header hierarchies, taking visual formatting vs structural headers into account.
 - **FR-004 (Segmentation Fallback):** If headers fail or segments are too large, the system shall safely chunk by characters/pages while respecting sentence boundaries.
 - **FR-005 (Evaluation):** The system shall query an LLM to evaluate the segment on eight pedagogical dimensions.
-- **FR-006 (Model Cascading & Failure):** The system shall attempt evaluation via Anthropic Claude 3.5/3.6 Sonnet first, and fallback to Google Gemini 2.5 Flash upon failure. If both fail, the system shall crash, log the exact error, and halt processing.
+- **FR-006 (Model Cascading & Failure):** The system shall attempt evaluation via Anthropic Claude 4.6 Sonnet first, and fallback to Google Gemini 2.5 Flash upon failure. If both fail, the system shall crash, log the exact error, and halt processing.
 - **FR-007 (Output Formatting):** The system shall output the segment scores, reasoning, and the *exact text evaluated* in a strict, validated JSON format.
 - **FR-008 (Aggregation):** The system shall aggregate the individual segment assessments into a course-level quality score by mathematically averaging the section scores.
 
@@ -69,7 +69,7 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 ### 5.2 Component Breakdown
 1. **CLI Orchestrator (`main.py`):** Validates arguments (e.g. `--input`, `--output`, `--config`), sets up logging, and drives the pipeline.
 2. **Metadata Ingestor (`metadata.py`):** Encapsulates the logic to read external files or parse them out of the PDF.
-3. **Smart Segmenter (`segmenter.py`):** Utilizes `PyMuPDF` or `pdfplumber` to extract structured text. 
+3. **Smart Segmenter (`segmenter.py`):** Utilizes `pdfplumber` to extract structured text. 
 4. **LLM Evaluator (`evaluator.py`):** Handles Prompt construction based on `config/rubrics.yaml`, executes async or sync API calls, enforces JSON schema returned from the LLM.
 5. **Aggregator (`aggregator.py`):** Calculates course-level score averages and serializes the complete document to JSON.
 
@@ -106,7 +106,7 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
     }
   ],
   "evaluation_meta": {
-    "model_used": "Claude 3.5 Sonnet",
+    "model_used": "Claude 4.6 Sonnet",
     "timestamp": "ISO-8601",
     "prompt_version": "1.0"
   }
@@ -118,6 +118,7 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 - ADR-002: Active LLM Model Cascading & Hard Failure
 - ADR-003: Standalone Metadata Extraction Workflow
 - ADR-004: Verbose JSON Output Strategy
+- ADR-005: Prioritize Accuracy Over Speed for PDF Parsing
 
 ## 7. Error Handling & Edge Cases
 - **Missing Metadata Fields:** Will be filled as `"Unknown"` or `null` if the PDF extractor fails. Does not block execution.
@@ -132,4 +133,4 @@ Given the constraints, rigorous unit tests must cover the deterministic nodes:
 3. `test_aggregator.py`: mocking segment scores and ensuring averages are computed exactly.
 
 ## 9. Deployment & Operations
-Operated purely via standard Python environments. Users need to install `requirements.txt` and populate a `.env` file based on a provided `.env.sample`.
+Operated purely via standard Python environments. Users need to install `requirements.txt` and populate a `.env` file based on a provided `.env.example`.

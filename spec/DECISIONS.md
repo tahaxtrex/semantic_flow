@@ -14,7 +14,7 @@ The core research principle specifies deterministic, non-LLM segmentation to min
 3. *Hybrid (Header -> Safe Chunk):* Attempt to split by structural headings. If a resulting segment exceeds a maximum length threshold, apply sentence-boundary-aware chunking.
 
 **Decision:**
-We chose Option 3 (Hybrid). We will rely on tools like `pdfplumber` or `PyMuPDF` to detect headings (or extract PDF outlines). If text blocks are unmanageably large, we will fall back to sentence-aware chunking.
+We chose Option 3 (Hybrid). We will rely on tools like `pdfplumber` to detect headings (or extract PDF outlines). If text blocks are unmanageably large, we will fall back to sentence-aware chunking.
 
 **Consequences:**
 Ensures text sections sent to LLMs perfectly respect context boundaries, preventing prompt truncation or mid-sentence logic loss.
@@ -74,3 +74,25 @@ Embed the *full exact text* of every segment directly alongside its scores and L
 Produces larger JSON files, but creates perfectly portable, self-contained artifacts that do not require the original PDF to be readable or auditable. This is critical for reproducible research datasets.
 
 **Linked Requirements:** FR-007
+
+---
+
+## ADR-005: Prioritize Accuracy Over Speed for PDF Parsing
+
+**Date:** 2026-02-22
+**Status:** Accepted
+
+**Context:**
+The system needs to parse deeply structured educational PDFs. We initially considered `PyMuPDF` for its execution speed. The user explicitly intervened to specify that the project focus is entirely on accuracy and research properties, overriding efficiency concerns.
+
+**Options Considered:**
+1. *PyMuPDF:* Very fast, lightweight, but can struggle with complex tabular or visually-nested bounding boxes compared to others.
+2. *pdfplumber:* Slower, heavier on memory, but heavily optimized for absolute positional accuracy, bounding box intersection, and exact character extraction.
+
+**Decision:**
+We will exclusively use `pdfplumber` (and drop `PyMuPDF` if they conflict) to maximize the deterministic accuracy of the text extraction and header detection.
+
+**Consequences:**
+Processing a large course PDF will take longer and consume more memory locally, but the extracted segments will be noticeably higher quality, directly supporting the research goals.
+
+**Linked Requirements:** FR-003

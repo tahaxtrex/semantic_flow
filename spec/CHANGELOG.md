@@ -13,6 +13,24 @@
 - 14 atomic executable tasks have been written.
 - Ready to move to **Phase 5 (Implementation)**.
 
+## 2026-02-22 — Model Selection Updated
+**Type:** Requirements revision
+**What changed:** 
+- Updated `spec/SPEC.md` and `spec/QUESTIONS.md` to specify `Claude 4.6 Sonnet` as the primary model and `Claude 3.5 Sonnet`.
+**Why it changed:** User instruction to use Sonnet 4.6 primarily.
+**Impact:** 
+- Requirements affected: FR-006
+
+## 2026-02-22 — PDF Parsing Strategy Revised
+**Type:** Decision revision
+**What changed:** 
+- Added ADR-005 to prioritize `pdfplumber` over `PyMuPDF`.
+- Updated `spec/SPEC.md` and `spec/TASKS.md` to reflect the library change.
+**Why it changed:** User instruction to focus on accuracy and research properties over speed/efficiency.
+**Impact:** 
+- Tasks affected: TASK-001, TASK-005
+- ADRs affected: ADR-005 (new)
+
 ## 2026-02-22 — Phase 1 Requirements Initiated
 **Type:** Scope change & Setup
 **What changed:** 

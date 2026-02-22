@@ -25,7 +25,7 @@
 **Status:** Answered
 
 **Question:** Which LLM provider or API will be used?
-**Answer:** Primarily Claude Sonnet 3.5/3.6 (via API). Fallback to Gemini 2.5 Flash. API keys will be in `.env`.
+**Answer:** Primarily Claude 4.6 Sonnet (via API). Fallback to Gemini 2.5 Flash. API keys will be in `.env`.
 
 ## Q-004: Rubrics File
 **Phase:** Discovery

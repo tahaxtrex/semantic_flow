@@ -1,9 +1,9 @@
 # Task Breakdown
 
 ## Phase: Setup & Core Scaffold
-- [ ] TASK-001: Initialize Python project structure (`src/`, `config/`, data directories) and `requirements.txt` / `.env.sample`.
+- [ ] TASK-001: Initialize Python project structure (`src/`, `config/`, data directories) and `requirements.txt` / `.env.example`.
   - Spec ref: CON-002, NFR-004
-  - Notes: Install libraries like `PyMuPDF`, `anthropic`, `google-generativeai`, `pydantic`.
+  - Notes: Install libraries like `pdfplumber`, `anthropic`, `google-generativeai`, `pydantic`.
 - [ ] TASK-002: Create `config/rubrics.yaml` mimicking the 8 dimensions.
   - Spec ref: NFR-002
   - Notes: Requires extracting the 8 rubrics definitions from domain knowledge.
@@ -16,8 +16,8 @@
   - Spec ref: FR-001, FR-002, ADR-003
   - Notes: Must check for `{basename}.json|.txt|.html` adjacent to the PDF, and parse it. Include a fallback `extract_metadata_from_pdf()` using regex or pure text parsing.
 - [ ] TASK-005: Implement `segmenter.py` (Header detection).
-  - Spec ref: FR-003, ADR-001
-  - Notes: Use PyMuPDF (`fitz`) to read text blocks. Try to identify font-size/formatting heuristics to group blocks by header.
+  - Spec ref: FR-003, ADR-001, ADR-005
+  - Notes: Use `pdfplumber` to read text blocks. Try to identify font-size/formatting heuristics to group blocks by header.
 - [ ] TASK-006: Implement `segmenter.py` (Safe boundary fallback chunking).
   - Spec ref: FR-004, ADR-001
   - Notes: If a header-grouped block exceeds X characters, iteratively split it on the nearest newline or sentence punctuation (`.`, `?`, `!`).
