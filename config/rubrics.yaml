@@ -1,25 +1,125 @@
-# Rubric definitions for Pedagogical Evaluation
-# Each rubric is scored from 1 to 10.
+# config/rubrics.yaml
+# Canonical rubric definitions for pedagogical evaluation.
+# Each rubric is scored on a 1-10 integer scale.
+# weight: contribution to overall_score (1.0 = equal weight; adjust for experiments).
+# scoring_guide: concrete anchors to reduce LLM score variance.
+#
+# MIGRATION NOTE: Migrated from flat-dict format to list format (2026-02-20).
+# This is the single authoritative definition of all rubric dimensions.
 
-goal_focus:
-  description: "Does the text concentrate on explaining core concepts relevant to its stated objective, or does it include unnecessary digressions and fluff? It should prioritize 'Must-Know' information over supplemental details."
-text_readability:
-  description: "How accessible is the language used? Does the learner spend effort understanding terminology rather than concepts? Ensure content is grammatically correct and avoids ambiguities."
-pedagogical_clarity:
-  description: "Does the text avoid unexplained jargon? Is the sentence structure appropriate for the intended audience? Technical terminology must be defined consistently upon first use."
-prerequisite_alignment:
-  description: "Are foundational concepts introduced before dependent ones? Are prerequisites clearly stated when assumed? Objectives should be logically sequenced to contribute to the overall program goal."
-fluidity_continuity:
-  description: "Do transitions between paragraphs and modules feel coherent, or does the content jump abruptly between unrelated topics?"
-structural_usability:
-  description: "Is the course logically organized? Are navigation instructions clear? Boundaries, elements, and guidelines explicit? Technical requirements and support resources should be easily locatable."
-example_concreteness:
-  description: "Are examples concrete, relatable, and plausible representations of real-world situations? Scenarios should be realistic and job-based."
-example_coherence:
-  description: "Are examples consistent and thematically connected across sections?"
+rubrics:
+  - id: goal_focus
+    name: "Goal Focus"
+    description: >
+      Does the text concentrate on explaining core concepts relevant to its
+      stated objective, or does it include unnecessary digressions and fluff?
+      It should prioritize 'Must-Know' information over supplemental details.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Significant digressions, unclear objectives, much irrelevant content"
+      mid: "4-6: Mostly on-topic but with some unnecessary tangents"
+      high: "7-10: Tightly focused on stated objectives, minimal digressions"
 
-# New Dimensions from V2
-business_relevance:
-  description: "Does the content directly address identified performance gaps? Are specific, practical takeaways immediately applicable to learner goals?"
-instructional_alignment:
-  description: "Are instructional materials current, accurate, and professionally presented? Is the relationship between materials, activities, and assessments clear and effective?"
+  - id: text_readability
+    name: "Text Readability"
+    description: >
+      How accessible is the language used? Does the learner spend effort
+      understanding terminology rather than concepts? Ensure content is
+      grammatically correct and avoids ambiguities.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Dense, inaccessible language; frequent ambiguities or grammar errors"
+      mid: "4-6: Generally readable but some passages are unnecessarily complex"
+      high: "7-10: Clear, concise, grammatically correct, appropriate for the intended audience"
+
+  - id: pedagogical_clarity
+    name: "Pedagogical Clarity"
+    description: >
+      Does the text avoid unexplained jargon? Is sentence structure appropriate
+      for the intended audience? Technical terminology must be defined
+      consistently upon first use.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Heavy unexplained jargon, undefined terms throughout"
+      mid: "4-6: Some terms undefined, occasional clarity issues"
+      high: "7-10: All terms defined at first use, consistently clear language"
+
+  - id: prerequisite_alignment
+    name: "Prerequisite Alignment"
+    description: >
+      Are foundational concepts introduced before dependent ones?
+      Are prerequisites clearly stated when assumed? Objectives should be
+      logically sequenced to contribute to the overall program goal.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Concepts used before introduction, prerequisites unstated"
+      mid: "4-6: Mostly ordered but some gaps in prerequisite handling"
+      high: "7-10: Clear logical progression, all prerequisites explicit"
+
+  - id: fluidity_continuity
+    name: "Fluidity and Continuity"
+    description: >
+      Do transitions between paragraphs and modules feel coherent,
+      or does the content jump abruptly between unrelated topics?
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Jarring transitions, disconnected topics, abrupt jumps"
+      mid: "4-6: Some rough transitions but generally followable"
+      high: "7-10: Smooth, logical flow throughout the section"
+
+  - id: structural_usability
+    name: "Structural Usability"
+    description: >
+      Is the course logically organized? Are navigation instructions clear?
+      Are boundaries, elements, and guidelines explicit? Technical requirements
+      and support resources should be easily locatable.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Poor organization, missing navigation cues, unclear structure"
+      mid: "4-6: Adequate structure but some sections hard to navigate"
+      high: "7-10: Well-organized with clear navigation and explicit structure"
+
+  - id: example_concreteness
+    name: "Example Concreteness"
+    description: >
+      Are examples concrete, relatable, and plausible representations
+      of real-world situations? Scenarios should be realistic and job-based.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Abstract, contrived, or missing examples"
+      mid: "4-6: Some examples present but not always relatable or realistic"
+      high: "7-10: Rich, concrete, real-world examples throughout"
+
+  - id: example_coherence
+    name: "Example Coherence"
+    description: >
+      Are examples consistent and thematically connected across sections?
+      Examples should build on each other rather than being isolated vignettes.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Examples contradict each other or are thematically scattered"
+      mid: "4-6: Some thematic connection but inconsistencies exist"
+      high: "7-10: Examples build on each other and form a coherent narrative"
+
+  - id: business_relevance
+    name: "Business Relevance"
+    description: >
+      Does the content directly address identified performance gaps?
+      Are specific, practical takeaways immediately applicable to learner goals?
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Content is theoretical with no practical application"
+      mid: "4-6: Some practical elements but not tied to specific performance gaps"
+      high: "7-10: Directly addresses performance gaps with actionable takeaways"
+
+  - id: instructional_alignment
+    name: "Instructional Alignment"
+    description: >
+      Are instructional materials current, accurate, and professionally presented?
+      Is the relationship between materials, activities, and assessments clear
+      and effective?
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Outdated materials, unclear relationship between components"
+      mid: "4-6: Mostly current but some alignment gaps"
+      high: "7-10: All materials aligned, current, and professionally presented"

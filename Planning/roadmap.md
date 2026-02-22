@@ -63,7 +63,7 @@
 
 ## `6. Folder Structure`
 
-- `should be well structured and organized and easily readable`
+- `should be well structured and organized and easily readable, the project be very simple`
 
 ---
 
