@@ -1,3 +1,27 @@
+## 2026-02-22 — Segmentation Overhaul & Evaluator Fallback Fix
+
+**Type:** Bug fix / Performance improvement
+**What changed:**
+- `src/segmenter.py`: Replaced loose header heuristic (`size > median + 1.5 OR bold`) with a strict chapter-level rule (`size >= median * 1.4 AND len < 80 chars`). Bold-alone formatting no longer triggers a new segment. Added `_merge_short_blocks()` to consolidate blocks shorter than `min_chars` (600). Raised `max_chars` from 3500 → 8000. Added page-number filtering.
+- `src/evaluator.py`: Added `_claude_failure_count` / `_claude_disabled` state. After `_MAX_CLAUDE_FAILURES = 2` consecutive Claude failures the evaluator permanently routes to Gemini for the rest of the run, avoiding N wasted API calls.
+- `spec/DECISIONS.md`: Added ADR-006 (Coarse Segmentation) and ADR-007 (Persistent Fallback).
+- `spec/TASKS.md`: Added TASK-015 and TASK-016.
+
+**Why it changed:**
+- A ~40-page PDF was producing 102 segments (every bold subheading = new segment), making full evaluation impractically expensive.
+- Claude was being retried on every segment even when it was clearly rate-limited or unavailable.
+
+**Impact:**
+- Expected segment count for a ~40-page PDF: 4–6 (down from ~100).
+- Claude failure handling is now O(1) wasted calls instead of O(N).
+
+## 2026-02-22 — Documentation Refactoring
+**Type:** Documentation fix
+**What changed:** 
+- Moved `spec/GUIDE.md` to the root directory and renamed it to `README.md`.
+**Why it changed:** User requested that the evaluation tool's manual be available as the primary README in the root.
+**Impact:** 
+- `spec/GUIDE.md` is now `README.md`
 # Project Log & Changelog
 
 ## 2026-02-22 — Phase 3 & 4 Completion

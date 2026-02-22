@@ -2,7 +2,6 @@
 
 ## Q-001: Metadata Extraction
 **Phase:** Discovery
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -11,7 +10,6 @@
 
 ## Q-002: Deterministic Segmentation Rules
 **Phase:** Discovery
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -20,7 +18,6 @@
 
 ## Q-003: LLM Integration
 **Phase:** Discovery
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -29,7 +26,6 @@
 
 ## Q-004: Rubrics File
 **Phase:** Discovery
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -38,7 +34,6 @@
 
 ## Q-005: Human Correlation Study Support
 **Phase:** Discovery
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -47,7 +42,6 @@
 
 ## Q-006: Execution Pipeline Boundaries
 **Phase:** Discovery
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -56,7 +50,6 @@
 
 ## Q-007: Structure & Files Naming
 **Phase:** Discovery
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -69,7 +62,6 @@
 
 ## Q-008: Evaluation Aggregation
 **Phase:** Requirements
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -78,7 +70,6 @@
 
 ## Q-009: API Failure Handling
 **Phase:** Requirements
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 
@@ -87,7 +78,6 @@
 
 ## Q-010: JSON Output Granularity
 **Phase:** Requirements
-**Asked by:** Antigravity
 **Date:** 2026-02-22
 **Status:** Answered
 

@@ -27,7 +27,7 @@ class ScoreAggregator:
         if not segments:
             logger.warning("No segments provided for aggregation. Returning early.")
             return CourseEvaluation(
-                course_metadata=metadata,
+                course_metadata=metadata.model_dump() if hasattr(metadata, 'model_dump') else metadata,
                 overall_score=overall_score,
                 segments=[],
                 evaluation_meta={
@@ -56,9 +56,9 @@ class ScoreAggregator:
         logger.info("Mathematical aggregation complete.")
         
         return CourseEvaluation(
-            course_metadata=metadata,
+            course_metadata=metadata.model_dump() if hasattr(metadata, 'model_dump') else metadata,
             overall_score=overall_score,
-            segments=segments,
+            segments=[s.model_dump() if hasattr(s, 'model_dump') else s for s in segments],
             evaluation_meta={
                 "model_used": model_used,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),

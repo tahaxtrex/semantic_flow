@@ -45,3 +45,11 @@
 - [x] TASK-012: Ensure logging framework records execution events cleanly to standard out.
 - [x] TASK-013: Write `test_segmenter.py` and other core unit tests.
 - [x] TASK-014: Flesh out `guide.md` with CLI usage instructions and JSON structure definition.
+
+## Phase: Bugfixes & Refinement
+- [ ] TASK-015: Validate segmentation granularity on real course PDFs.
+  - Spec ref: ADR-006, FR-003
+  - Notes: Run `SmartSegmenter` on at least 3 PDFs of varying length. Confirm segment count is in the 4–10 range. Tune `median * 1.4` threshold or `min_chars` if necessary. Document results in `Planning/segmentation_validation.md`.
+- [ ] TASK-016: Add `_merge_short_blocks` unit tests and update `test_segmenter.py`.
+  - Spec ref: ADR-006
+  - Notes: Test cases: all-short blocks merge into one, mixed blocks emit correct split, single block shorter than min_chars is preserved as fallback (appended to prior or returned alone).

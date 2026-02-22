@@ -1,0 +1,149 @@
+2026-02-22 13:09:17,182 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:09:17,182 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:09:17,182 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:09:17,182 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:09:17,182 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:09:17,704 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:09:17,704 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:09:17,722 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:09:20,441 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (102 segments)
+2026-02-22 13:09:20,441 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/102
+2026-02-22 13:14:32,870 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:14:32,870 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:14:32,870 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:14:32,870 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:14:32,871 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:14:33,334 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:14:33,334 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:14:33,352 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:14:35,977 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (102 segments)
+2026-02-22 13:14:35,977 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/102
+2026-02-22 13:20:47,654 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:20:47,654 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:20:47,654 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:20:47,654 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:20:47,654 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:20:48,125 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:20:48,125 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:20:48,143 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:20:50,736 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (102 segments)
+2026-02-22 13:20:50,736 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/102
+2026-02-22 13:24:46,372 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:24:46,372 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:24:46,372 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:24:46,372 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:24:46,373 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:24:47,121 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:24:47,121 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:24:47,138 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:24:49,750 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (102 segments)
+2026-02-22 13:24:49,750 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/102
+2026-02-22 13:25:12,447 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/102
+2026-02-22 13:25:30,770 [INFO] SemanticFlowEvaluator:   Evaluating segment 3/102
+2026-02-22 13:25:55,729 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:25:55,729 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:25:55,729 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:25:55,729 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:25:55,729 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:25:56,493 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:25:56,493 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:25:56,511 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:25:59,090 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 3 segments for testing.
+2026-02-22 13:25:59,090 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (3 segments)
+2026-02-22 13:25:59,090 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/3
+2026-02-22 13:26:20,349 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/3
+2026-02-22 13:27:42,757 [INFO] SemanticFlowEvaluator:   Evaluating segment 3/3
+2026-02-22 13:28:14,209 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-22 13:28:14,209 [ERROR] SemanticFlowEvaluator: Failed processing Python Programming Fundamentals (2010).pdf: 1 validation error for CourseEvaluation
+course_metadata
+  Input should be a valid dictionary or instance of CourseMetadata [type=model_type, input_value=CourseMetadata(title='Pyt...], learning_outcomes=[]), input_type=CourseMetadata]
+    For further information visit https://errors.pydantic.dev/2.12/v/model_type
+2026-02-22 13:28:14,250 [ERROR] SemanticFlowEvaluator: 1 validation error for CourseEvaluation
+course_metadata
+  Input should be a valid dictionary or instance of CourseMetadata [type=model_type, input_value=CourseMetadata(title='Pyt...], learning_outcomes=[]), input_type=CourseMetadata]
+    For further information visit https://errors.pydantic.dev/2.12/v/model_type
+Traceback (most recent call last):
+  File "/home/xtrex/Documents/project/github/semantic_flow/src/main.py", line 121, in main
+    course_eval = aggregator.aggregate(metadata, evaluated_segments)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xtrex/Documents/project/github/semantic_flow/src/aggregator.py", line 58, in aggregate
+    return CourseEvaluation(
+           ^^^^^^^^^^^^^^^^^
+  File "/home/xtrex/Documents/project/github/semantic_flow/.venv/lib/python3.12/site-packages/pydantic/main.py", line 250, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for CourseEvaluation
+course_metadata
+  Input should be a valid dictionary or instance of CourseMetadata [type=model_type, input_value=CourseMetadata(title='Pyt...], learning_outcomes=[]), input_type=CourseMetadata]
+    For further information visit https://errors.pydantic.dev/2.12/v/model_type
+2026-02-22 13:28:14,251 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-22 13:28:43,507 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:28:43,508 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:28:43,508 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:28:43,508 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:28:43,508 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:28:44,246 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:28:44,246 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:28:44,267 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:28:46,926 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 3 segments for testing.
+2026-02-22 13:28:46,926 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (3 segments)
+2026-02-22 13:28:46,926 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/3
+2026-02-22 13:29:10,018 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/3
+2026-02-22 13:29:27,830 [INFO] SemanticFlowEvaluator:   Evaluating segment 3/3
+2026-02-22 13:29:53,636 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-22 13:29:53,636 [INFO] SemanticFlowEvaluator: Successfully evaluated Python Programming Fundamentals (2010).pdf -> Python Programming Fundamentals (2010)_evaluation.json
+2026-02-22 13:29:53,636 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-22 13:33:58,139 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:33:58,139 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:33:58,139 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:33:58,139 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:33:58,139 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:33:58,907 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:33:58,907 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:33:58,926 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:34:01,520 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (102 segments)
+2026-02-22 13:34:01,520 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/102
+2026-02-22 13:34:23,283 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/102
+2026-02-22 13:34:47,322 [INFO] SemanticFlowEvaluator:   Evaluating segment 3/102
+2026-02-22 13:35:08,009 [INFO] SemanticFlowEvaluator:   Evaluating segment 4/102
+2026-02-22 13:35:28,798 [INFO] SemanticFlowEvaluator:   Evaluating segment 5/102
+2026-02-22 13:53:06,626 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 13:53:06,626 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 13:53:06,626 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 13:53:06,626 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 13:53:06,626 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 13:53:07,373 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 13:53:07,373 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 13:53:07,392 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 13:53:10,009 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (102 segments)
+2026-02-22 13:53:10,009 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/102
+2026-02-22 13:53:25,750 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/102
+2026-02-22 13:53:32,405 [INFO] SemanticFlowEvaluator:   Evaluating segment 3/102
+2026-02-22 13:53:39,173 [INFO] SemanticFlowEvaluator:   Evaluating segment 4/102
+2026-02-22 13:53:57,803 [INFO] SemanticFlowEvaluator:   Evaluating segment 5/102
+2026-02-22 14:36:41,130 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 14:36:41,130 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 14:36:41,130 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 14:36:41,130 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 14:36:41,130 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 14:36:41,886 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 14:36:41,886 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 14:36:41,905 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 14:36:44,655 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (14 segments)
+2026-02-22 14:36:44,655 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/14
+2026-02-22 14:36:59,017 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/14
+2026-02-22 14:37:17,039 [INFO] SemanticFlowEvaluator:   Evaluating segment 3/14
+2026-02-22 14:37:33,841 [INFO] SemanticFlowEvaluator:   Evaluating segment 4/14
+2026-02-22 14:37:48,254 [INFO] SemanticFlowEvaluator:   Evaluating segment 5/14
+2026-02-22 14:38:04,388 [INFO] SemanticFlowEvaluator:   Evaluating segment 6/14
+2026-02-22 14:38:27,246 [INFO] SemanticFlowEvaluator:   Evaluating segment 7/14
+2026-02-22 14:38:39,287 [INFO] SemanticFlowEvaluator:   Evaluating segment 8/14
+2026-02-22 14:38:57,897 [INFO] SemanticFlowEvaluator:   Evaluating segment 9/14
+2026-02-22 14:39:33,808 [INFO] SemanticFlowEvaluator:   Evaluating segment 10/14
+2026-02-22 14:39:50,949 [INFO] SemanticFlowEvaluator:   Evaluating segment 11/14
+2026-02-22 14:40:06,308 [INFO] SemanticFlowEvaluator:   Evaluating segment 12/14
+2026-02-22 14:40:21,258 [INFO] SemanticFlowEvaluator:   Evaluating segment 13/14
+2026-02-22 14:40:41,738 [INFO] SemanticFlowEvaluator:   Evaluating segment 14/14
+2026-02-22 14:40:57,609 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-22 14:40:57,611 [INFO] SemanticFlowEvaluator: Successfully evaluated Python Programming Fundamentals (2010).pdf -> Python Programming Fundamentals (2010)_evaluation.json
+2026-02-22 14:40:57,611 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.

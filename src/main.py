@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 def setup_logging(output_dir: Path) -> logging.Logger:
     """Configure logging to output to both console and a file in the output directory."""
@@ -32,10 +33,12 @@ def setup_logging(output_dir: Path) -> logging.Logger:
     return logger
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="SemanticFlow Pedagogical Evaluator")
     parser.add_argument("--input", type=str, required=True, help="Path to input directory containing courses (PDFs)")
     parser.add_argument("--output", type=str, required=True, help="Path to output directory for JSON evaluations")
     parser.add_argument("--config", type=str, default="config/rubrics.yaml", help="Path to rubrics YAML configuration")
+    parser.add_argument("--limit", type=int, default=0, help="Limit the number of segments to evaluate per PDF for quick testing (0 = no limit)")
     
     args = parser.parse_args()
     
@@ -100,6 +103,10 @@ def main():
             logger.info("Step 2/4: Deterministic Segmentation")
             segmenter = SmartSegmenter(pdf_path)
             segments = segmenter.segment()
+            
+            if args.limit > 0:
+                logger.info(f"Limiting evaluation to first {args.limit} segments for testing.")
+                segments = segments[:args.limit]
             
             # 3. Evaluate Segments
             logger.info(f"Step 3/4: LLM Evaluation ({len(segments)} segments)")

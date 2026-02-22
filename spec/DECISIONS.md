@@ -75,6 +75,9 @@ Produces larger JSON files, but creates perfectly portable, self-contained artif
 
 **Linked Requirements:** FR-007
 
+
+**Linked Requirements:** FR-006, ADR-002
+
 ---
 
 ## ADR-005: Prioritize Accuracy Over Speed for PDF Parsing
@@ -96,3 +99,45 @@ We will exclusively use `pdfplumber` (and drop `PyMuPDF` if they conflict) to ma
 Processing a large course PDF will take longer and consume more memory locally, but the extracted segments will be noticeably higher quality, directly supporting the research goals.
 
 **Linked Requirements:** FR-003
+---
+
+## ADR-006: Coarse Chapter-Level Segmentation Granularity
+
+**Date:** 2026-02-22
+**Status:** Accepted
+
+**Context:**
+The initial segmenter used `font_size > median + 1.5pt OR bold` as the header trigger, which caused every bold subheading, inline term emphasis, and table label to create a new segment. A ~40-page PDF produced 102 segments, making LLM evaluation impractically expensive and producing scores on incoherently short text slices.
+
+**Options Considered:**
+1. *Fine-grained (old behavior):* Every bold or slightly-larger line starts a segment. Produces many micro-segments; expensive and misaligned with pedagogical structure.
+2. *Chapter-level only:* Only significantly larger text (>= 1.4x body median, < 80 chars) starts a new segment. Inline bold formatting is treated as body text.
+3. *Fixed page-count windows:* Group every N pages regardless of structure. Ignores content boundaries.
+
+**Decision:**
+Option 2. Header detection now requires `max_font_size >= median * 1.4` AND `len(text) < 80`. Bold-alone formatting no longer triggers a split. Additionally, a `min_chars` merge pass combines blocks shorter than 600 chars into the following block, ensuring every emitted segment has enough content for meaningful LLM evaluation. The target granularity for a ~40-page PDF is 4–6 segments.
+
+**Consequences:**
+- Segment count drops from ~100 to ~5, reducing LLM API cost dramatically.
+- Each segment contains a full logical chapter, giving the LLM sufficient context.
+- Subsection-level pedagogy is evaluated holistically within a chapter, not in isolation.
+
+**Linked Requirements:** FR-003, FR-004, ADR-001, ADR-005
+
+---
+
+## ADR-007: Persistent Model Fallback After Consecutive Claude Failures
+
+**Date:** 2026-02-22
+**Status:** Accepted
+
+**Context:**
+The original cascade logic tried Claude → Gemini independently for every segment. If Claude was rate-limited or unavailable, every segment would attempt Claude, fail, log an error, then fall back to Gemini — wasting time on N failed API calls for an N-segment run.
+
+**Decision:**
+`LLMEvaluator` now tracks consecutive Claude failures via `_claude_failure_count`. After `_MAX_CLAUDE_FAILURES = 2` consecutive failures, `_claude_disabled` is set to `True` for the rest of the run. All subsequent segments are routed directly to Gemini without attempting Claude. A success resets the counter. This is a run-scoped state (not persisted between invocations).
+
+**Consequences:**
+- Eliminates N−2 wasted Claude API calls when Claude is down.
+- Gemini still hard-crashes on failure per ADR-002.
+- Mixed-model runs (some Claude, some Gemini) may occur; callers should track `model_used` per segment if reproducibility is critical.
