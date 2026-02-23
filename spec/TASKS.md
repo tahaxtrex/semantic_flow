@@ -50,6 +50,24 @@
 - [ ] TASK-015: Validate segmentation granularity on real course PDFs.
   - Spec ref: ADR-006, FR-003
   - Notes: Run `SmartSegmenter` on at least 3 PDFs of varying length. Confirm segment count is in the 4–10 range. Tune `median * 1.4` threshold or `min_chars` if necessary. Document results in `Planning/segmentation_validation.md`.
-- [ ] TASK-016: Add `_merge_short_blocks` unit tests and update `test_segmenter.py`.
+- [x] TASK-016: Add `_merge_short_blocks` unit tests and update `test_segmenter.py`.
   - Spec ref: ADR-006
   - Notes: Test cases: all-short blocks merge into one, mixed blocks emit correct split, single block shorter than min_chars is preserved as fallback (appended to prior or returned alone).
+- [x] TASK-017: Implement `_words_to_lines()` and fix word concatenation.
+  - Spec ref: ADR-008, FR-003
+  - Notes: Replaces `extract_text_lines(return_chars=True)` with word-object-based reconstruction. Correctly handles ligature-encoded fonts. Strips standalone oversized-font digits (Springer margin chapter numbers).
+- [x] TASK-018: Rewrite `_extract_blocks_with_headers()` with page crop and table detection.
+  - Spec ref: ADR-010, FR-003
+  - Notes: Crops each page to body region (top 10%, bottom 8%). Detects tables via `find_tables()` and annotates as `[TABLE: ...]`. Uses `_words_to_lines()`. Annotates monospace lines with `[CODE]`/`[/CODE]`. Returns `(blocks, page_count)`.
+- [x] TASK-019: Implement `_merge_to_target()` and enforce `page_count // 10` segment cap.
+  - Spec ref: ADR-009, FR-003, FR-004
+  - Notes: Greedy smallest-pair merge ensures `len(blocks) <= max_segments`. Replaces `_merge_short_blocks()` in main path.
+- [x] TASK-020: Add extraction disclaimer to `_build_prompt()` in evaluator.
+  - Spec ref: FR-005, FR-006
+  - Notes: 4-line block after segment text; instructs LLM not to penalise pipeline artifacts (figures, ligature spaces, table markers, code markers).
+- [x] TASK-021: Write unit tests for `_words_to_lines()` and `_merge_to_target()`.
+  - Spec ref: ADR-008, ADR-009
+  - Notes: Test `_words_to_lines()`: empty input, single word, multi-word grouping, oversized-digit stripping, code font detection. Test `_merge_to_target()`: already at target, one over, many over, single block.
+- [x] TASK-022: Re-run evaluation on test PDF and validate segment count ≤ 4.
+  - Spec ref: ADR-009, FR-003
+  - Notes: Run full pipeline on the 40-page Springer test PDF. Verify `grep "Generated.*segments"` in log shows ≤ 4. Spot-check extracted text for absence of concatenated words.

@@ -141,3 +141,78 @@ The original cascade logic tried Claude → Gemini independently for every segme
 - Eliminates N−2 wasted Claude API calls when Claude is down.
 - Gemini still hard-crashes on failure per ADR-002.
 - Mixed-model runs (some Claude, some Gemini) may occur; callers should track `model_used` per segment if reproducibility is critical.
+
+---
+
+## ADR-008: Word-Level Text Reconstruction for Ligature-Encoded PDFs
+
+**Date:** 2026-02-22
+**Status:** Accepted
+
+**Context:**
+The first real evaluation run (Springer textbook PDF) produced `text_readability` scores averaging 2.5/10. Root cause analysis (critic.md Issue 1) traced this to `extract_text_lines(return_chars=True)` — pdfplumber's character-stream extraction concatenates words without spaces when fonts use ligature encoding (e.g. "OpenuptheWingIDE" instead of "Open up the Wing IDE"). This corrupted all extracted text before the LLM ever saw it.
+
+**Options Considered:**
+1. *`extract_text(use_text_flow=True)`:* Some improvement for flow, but still character-stream based and does not reliably insert word gaps for ligature fonts.
+2. *Word-object reconstruction (`extract_words()` + explicit space join):* `extract_words()` uses pdfplumber's internal word-boundary detection (gap-based splitting), then joining with `' '.join()` guarantees spaces. Word objects also carry per-word `size` and `fontname` attributes needed for header detection and code-block annotation.
+3. *OCR fallback:* Accurate but would require a heavy dependency (pytesseract/easyocr) and lose all font metadata.
+
+**Decision:**
+Option 2. `_extract_blocks_with_headers()` now calls `page.extract_words(extra_attrs=["size", "fontname"])` and groups words by Y-baseline via the new `_words_to_lines()` helper. Words are joined with explicit spaces.
+
+**Consequences:**
+- Word boundaries are correctly reconstructed for ligature-encoded fonts.
+- Per-word `size` and `fontname` attributes are preserved for header detection and code annotation.
+- Slight increase in processing complexity (Y-grouping pass), but negligible at chapter granularity.
+
+**Linked Requirements:** FR-003, ADR-005
+
+---
+
+## ADR-009: Page-Count-Based Hard Segment Cap (`page_count // 10`)
+
+**Date:** 2026-02-22
+**Status:** Accepted
+
+**Context:**
+After the ADR-006 coarse-segmentation fix, the Springer PDF still produced 14 segments for a 40-page chapter. The `min_chars=600` merge pass was insufficient because many sections exceeded the threshold individually. The user's stated requirement is **≤ 1 segment per 10 pages**.
+
+**Options Considered:**
+1. *Further tighten `header_threshold` multiplier:* Raises the bar for what counts as a header, but is brittle — some PDFs may legitimately have many large-font section headers.
+2. *`page_count // 10` hard cap with greedy smallest-pair merge:* Directly encodes the user's rule as an explicit constraint. Merging the shortest adjacent pair at each step minimises information loss by keeping the most similar-length segments.
+3. *Fixed absolute maximum (e.g. 6 segments):* Doesn't scale to longer PDFs; arbitrary.
+
+**Decision:**
+Option 2. `segment()` now computes `max_segments = max(1, page_count // 10)` after extraction and calls the new `_merge_to_target(raw_blocks, max_segments)`. The old `_merge_short_blocks()` method is replaced entirely by this target-driven merge.
+
+**Consequences:**
+- A 40-page PDF always produces ≤ 4 segments, a 100-page PDF ≤ 10, etc.
+- `_merge_short_blocks` is removed from the active code path (the `min_chars` parameter is retained on the constructor for backward compatibility but is unused).
+- Merge heuristic (shortest-pair) is information-preserving under the constraint.
+
+**Linked Requirements:** FR-003, FR-004, ADR-001, ADR-006
+
+---
+
+## ADR-010: Y-Coordinate Page Crop + `find_tables()` for Header/Footer Stripping and Table Detection
+
+**Date:** 2026-02-22
+**Status:** Accepted
+
+**Context:**
+The Springer PDF includes running page headers (chapter title repeated on every page) and running footers (page numbers + section name). These were extracted as body text, inflating segment content with repeated boilerplate and causing the LLM to see misleading structural repetition (critic.md Issues 3, 4). Additionally, table content was being extracted as free-form text, producing structurally garbled lines (Issue 9).
+
+**Options Considered:**
+1. *Regex filtering of repeated boilerplate lines:* Requires identifying the exact repeated string per document; brittle and font-agnostic only in appearance.
+2. *Y-coordinate crop (`within_bbox` top 10% / bottom 8%):* Font-agnostic positional filter. Running headers/footers are almost universally in the top or bottom margin. Combined with `find_tables()` for structured table detection.
+3. *PDF outline / bookmark-based extraction:* Not all PDFs have bookmarks; not reliable enough as primary strategy.
+
+**Decision:**
+Option 2. Each page is cropped via `page.within_bbox((0, H*0.10, W, H*0.92))` before word extraction. Tables within the body region are detected via `body.find_tables()`; words overlapping detected table bounding boxes are excluded from body text and replaced with `[TABLE: col1 | col2 | ...]` annotations. Springer chapter-number marginalia (oversized standalone digits in the margin) are stripped in `_words_to_lines()`.
+
+**Consequences:**
+- Running headers and footers are eliminated without document-specific configuration.
+- Tables produce a compact structural annotation instead of garbled free-form text.
+- The 10% / 8% crop boundaries may occasionally clip the first or last line of body text on unusually-formatted PDFs; this is acceptable given the significant boilerplate reduction.
+
+**Linked Requirements:** FR-003, ADR-001, ADR-005

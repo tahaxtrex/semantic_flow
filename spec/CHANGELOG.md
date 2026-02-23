@@ -1,3 +1,22 @@
+## 2026-02-22 — Extraction Pipeline Fix & Segment Cap Enforcement
+
+**Type:** Bug fix / Correctness improvement
+**What changed:**
+- `src/segmenter.py`: Added `_words_to_lines()` — word-object-based line reconstruction that correctly inserts spaces for ligature-encoded fonts (fixes word concatenation bug, critic.md Issue 1). Rewrote `_extract_blocks_with_headers()` to: (a) crop each page to body region (`within_bbox` top 10% / bottom 8%) stripping running headers/footers; (b) detect tables via `find_tables()` and annotate as `[TABLE: ...]` markers; (c) use `_words_to_lines()` instead of `extract_text_lines(return_chars=True)`; (d) annotate consecutive monospace lines with `[CODE]`/`[/CODE]` markers; (e) return `(blocks, page_count)` tuple. Added `_merge_to_target()` — greedy smallest-pair merge that enforces a hard segment cap. Updated `segment()` to compute `max_segments = max(1, page_count // 10)` and use `_merge_to_target()` instead of `_merge_short_blocks()`. Removed `_merge_short_blocks()` from main path (`min_chars` parameter retained for backward compat).
+- `src/evaluator.py`: Added 4-line extraction disclaimer block in `_build_prompt()` after the segment text, instructing the LLM not to penalise the course for pipeline artifacts (figures, ligature encoding, table markers, code markers).
+- `spec/DECISIONS.md`: Added ADR-008 (word-level reconstruction), ADR-009 (page-count segment cap), ADR-010 (Y-crop + table detection).
+- `spec/TASKS.md`: Marked TASK-016 complete; added TASK-017 through TASK-022.
+
+**Why it changed:**
+- `text_readability` scores were averaging 2.5/10 due to word concatenation from ligature-encoded fonts.
+- The segmenter was producing 14 segments for a 40-page PDF; user requires ≤ 1 segment per 10 pages.
+- Running headers/footers were being extracted as body text, polluting segment content.
+
+**Impact:**
+- Word boundaries now correctly reconstructed for ligature-encoded PDFs.
+- Segment count hard-capped at `page_count // 10` (≤ 4 for 40-page PDFs).
+- LLM no longer penalises extraction artifacts as course quality issues.
+
 ## 2026-02-22 — Segmentation Overhaul & Evaluator Fallback Fix
 
 **Type:** Bug fix / Performance improvement

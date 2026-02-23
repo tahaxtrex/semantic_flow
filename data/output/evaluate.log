@@ -147,3 +147,75 @@ course_metadata
 2026-02-22 14:40:57,609 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
 2026-02-22 14:40:57,611 [INFO] SemanticFlowEvaluator: Successfully evaluated Python Programming Fundamentals (2010).pdf -> Python Programming Fundamentals (2010)_evaluation.json
 2026-02-22 14:40:57,611 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-22 15:28:32,632 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 15:28:32,632 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 15:28:32,632 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 15:28:32,632 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 15:28:32,633 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 15:28:33,454 [INFO] SemanticFlowEvaluator: --- Processing: Python Programming Fundamentals (2010).pdf ---
+2026-02-22 15:28:33,454 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 15:28:33,474 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 15:28:36,218 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 1 segments for testing.
+2026-02-22 15:28:36,218 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (1 segments)
+2026-02-22 15:28:36,218 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/1
+2026-02-22 15:28:52,671 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-22 15:28:52,672 [INFO] SemanticFlowEvaluator: Successfully evaluated Python Programming Fundamentals (2010).pdf -> Python Programming Fundamentals (2010)_evaluation.json
+2026-02-22 15:28:52,672 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-22 15:40:11,398 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 15:40:11,398 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 15:40:11,398 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 15:40:11,398 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 15:40:11,398 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 15:40:12,142 [INFO] SemanticFlowEvaluator: --- Processing: javascript_tutorial.pdf ---
+2026-02-22 15:40:12,142 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 15:40:12,170 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 15:40:15,456 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (14 segments)
+2026-02-22 15:40:15,456 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/14
+2026-02-22 15:41:16,549 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 15:41:16,549 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 15:41:16,550 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 15:41:16,550 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 15:41:16,550 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 15:41:17,298 [INFO] SemanticFlowEvaluator: --- Processing: javascript_tutorial.pdf ---
+2026-02-22 15:41:17,298 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 15:41:17,321 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 15:41:20,637 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (14 segments)
+2026-02-22 15:41:20,637 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/14
+2026-02-22 15:51:25,004 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 15:51:25,004 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 15:51:25,004 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 15:51:25,004 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 15:51:25,004 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 15:51:25,737 [INFO] SemanticFlowEvaluator: --- Processing: javascript_tutorial.pdf ---
+2026-02-22 15:51:25,737 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 15:51:25,760 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 15:51:28,997 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (14 segments)
+2026-02-22 15:51:28,997 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/14
+2026-02-22 15:52:25,686 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 15:52:25,686 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 15:52:25,686 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 15:52:25,686 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 15:52:25,686 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 15:52:26,433 [INFO] SemanticFlowEvaluator: --- Processing: javascript_tutorial.pdf ---
+2026-02-22 15:52:26,433 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 15:52:26,456 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 15:52:29,736 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (14 segments)
+2026-02-22 15:52:29,737 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/14
+2026-02-22 15:52:42,354 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/14
+2026-02-22 15:52:53,207 [INFO] SemanticFlowEvaluator:   Evaluating segment 3/14
+2026-02-22 15:53:09,047 [INFO] SemanticFlowEvaluator:   Evaluating segment 4/14
+2026-02-22 16:05:24,093 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-22 16:05:24,093 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-22 16:05:24,093 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-22 16:05:24,093 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-22 16:05:24,094 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-02-22 16:05:24,846 [INFO] SemanticFlowEvaluator: --- Processing: javascript_tutorial.pdf ---
+2026-02-22 16:05:24,846 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-22 16:05:25,115 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-22 16:05:28,391 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 2 segments for testing.
+2026-02-22 16:05:28,391 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (2 segments)
+2026-02-22 16:05:28,391 [INFO] SemanticFlowEvaluator:   Evaluating segment 1/2
+2026-02-22 16:05:56,268 [INFO] SemanticFlowEvaluator:   Evaluating segment 2/2
+2026-02-22 16:06:27,405 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-22 16:06:27,406 [INFO] SemanticFlowEvaluator: Successfully evaluated javascript_tutorial.pdf -> javascript_tutorial_evaluation.json
+2026-02-22 16:06:27,406 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.

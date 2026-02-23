@@ -6,11 +6,16 @@ from src.models import CourseMetadata, EvaluatedSegment, CourseEvaluation
 logger = logging.getLogger(__name__)
 
 class ScoreAggregator:
-    """Aggregates segment-level scores into a final course-level mathematical average."""
-    
+    """Aggregates segment-level scores into a final course-level mathematical average.
+
+    Only 'instructional' segments contribute to overall_score.
+    Exercise, solution, and reference_table segments are stored in the output
+    but excluded from the aggregate (critic.md Issue 8).
+    """
+
     def aggregate(self, metadata: CourseMetadata, segments: List[EvaluatedSegment], model_used: str = "Claude 4.6 Sonnet") -> CourseEvaluation:
         logger.info(f"Aggregating scores for {len(segments)} segments.")
-        
+
         overall_score: Dict[str, float] = {
             "goal_focus": 0.0,
             "text_readability": 0.0,
@@ -23,7 +28,18 @@ class ScoreAggregator:
             "business_relevance": 0.0,
             "instructional_alignment": 0.0
         }
-        
+
+        # Separate instructional from non-instructional segments
+        instructional_segments = [s for s in segments if getattr(s, 'segment_type', 'instructional') == 'instructional']
+        non_instructional = [s for s in segments if getattr(s, 'segment_type', 'instructional') != 'instructional']
+
+        if non_instructional:
+            types_found = {getattr(s, 'segment_type', '?') for s in non_instructional}
+            logger.info(
+                f"Excluding {len(non_instructional)} non-instructional segment(s) from aggregate "
+                f"(types: {', '.join(sorted(types_found))})."
+            )
+
         if not segments:
             logger.warning("No segments provided for aggregation. Returning early.")
             return CourseEvaluation(
@@ -33,28 +49,30 @@ class ScoreAggregator:
                 evaluation_meta={
                     "model_used": model_used,
                     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "prompt_version": "1.0",
+                    "prompt_version": "1.1",
                     "note": "No segments evaluated"
                 }
             )
-            
-        # Sum all quantitative scores
+
+        scoring_pool = instructional_segments if instructional_segments else segments
+        if not instructional_segments:
+            logger.warning("No instructional segments found — falling back to scoring all segments.")
+
         dimensions = overall_score.keys()
-        for segment in segments:
-            # Safely unpack the Pydantic model dict
+        for segment in scoring_pool:
             scores_dict = segment.scores.model_dump() if hasattr(segment.scores, 'model_dump') else segment.scores
             for dim in dimensions:
-                # Provide fallback 0 if missing
                 overall_score[dim] += scores_dict.get(dim, 0)
-                
-        # Calculate mathematical averages across all returned segments
-        num_segments = len(segments)
+
+        num_scored = len(scoring_pool)
         for dim in dimensions:
-            average = overall_score[dim] / num_segments
-            overall_score[dim] = round(average, 2)
-            
-        logger.info("Mathematical aggregation complete.")
-        
+            overall_score[dim] = round(overall_score[dim] / num_scored, 2)
+
+        logger.info(
+            f"Mathematical aggregation complete. "
+            f"Scored {num_scored}/{len(segments)} instructional segments."
+        )
+
         return CourseEvaluation(
             course_metadata=metadata.model_dump() if hasattr(metadata, 'model_dump') else metadata,
             overall_score=overall_score,
@@ -62,6 +80,9 @@ class ScoreAggregator:
             evaluation_meta={
                 "model_used": model_used,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "prompt_version": "1.0"
+                "prompt_version": "1.1",
+                "total_segments": len(segments),
+                "instructional_segments_scored": num_scored,
+                "excluded_segments": len(segments) - num_scored
             }
         )

@@ -15,6 +15,9 @@ class Segment(BaseModel):
     segment_id: int
     heading: Optional[str] = None
     text: str
+    # Critic fix Issue 8: classify segment content type
+    # Values: "instructional" | "exercise" | "solution" | "reference_table"
+    segment_type: str = "instructional"
 
 class SectionScores(BaseModel):
     goal_focus: int = 0
@@ -48,4 +51,4 @@ class CourseEvaluation(BaseModel):
     course_metadata: CourseMetadata
     overall_score: Dict[str, float]
     segments: List[EvaluatedSegment]
-    evaluation_meta: Dict[str, str]
+    evaluation_meta: Dict[str, Any]
