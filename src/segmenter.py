@@ -27,6 +27,9 @@ _SOLUTION_PATTERNS = [
 _REFERENCE_TABLE_PATTERNS = [
     re.compile(r'\b(appendix|table of|reference table|index)\b', re.IGNORECASE),
 ]
+_FRONTMATTER_PATTERNS = [
+    re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication)\s*)$', re.IGNORECASE),
+]
 
 
 class SmartSegmenter:
@@ -57,8 +60,8 @@ class SmartSegmenter:
         logger.info(f"Segmenting PDF: {self.pdf_path.name}")
         raw_blocks, page_count = self._extract_blocks_with_headers()
         max_segments = max(1, page_count // 10)
-        logger.info(f"PDF has {page_count} pages — targeting ≤{max_segments} segments")
-        merged_blocks = self._merge_to_target(raw_blocks, max_segments)
+        logger.info(f"PDF has {page_count} pages — aiming to logically group related chunks...")
+        merged_blocks = self._merge_short_blocks(raw_blocks)
 
         segments = []
         segment_id = 1
@@ -111,6 +114,17 @@ class SmartSegmenter:
         if heading_is_exercise or (exercise_line_count >= 3 and exercise_line_count >= len(lines) * 0.4):
             return "exercise"
 
+        # Frontmatter / Metadata (TOC, Preface, History, etc.)
+        for pat in _FRONTMATTER_PATTERNS:
+            if pat.search(heading_l):
+                return "frontmatter"
+
+        # Check first line of text for frontmatter as fallback if heading was missed
+        first_line = text.lstrip().split('\n')[0].strip().lower()
+        for pat in _FRONTMATTER_PATTERNS:
+            if pat.fullmatch(first_line):
+                return "frontmatter"
+
         return "instructional"
 
     # ------------------------------------------------------------------
@@ -154,7 +168,14 @@ class SmartSegmenter:
                 'Code' in str(w.get('fontname', ''))
                 for w in line_words
             )
-            result.append({'text': text, 'max_size': max_size, 'is_code': is_code})
+            # Detect bold fonts for header detection heuristics
+            is_bold = any(
+                'Bold' in str(w.get('fontname', '')) or
+                'Black' in str(w.get('fontname', '')) or
+                'Heavy' in str(w.get('fontname', ''))
+                for w in line_words
+            )
+            result.append({'text': text, 'max_size': max_size, 'is_code': is_code, 'is_bold': is_bold})
         return result
 
     def _extract_blocks_with_headers(self) -> Tuple[List[Tuple[Optional[str], str]], int]:
@@ -212,12 +233,21 @@ class SmartSegmenter:
                         for table in tables:
                             bbox = table.bbox  # (x0, top, x1, bottom)
                             table_bboxes.append(bbox)
-                            # Build annotation from first row of extracted data
+                            # Build annotation from all rows of extracted data
                             try:
                                 extracted = table.extract()
-                                if extracted and extracted[0]:
-                                    first_row = [str(cell) if cell is not None else '' for cell in extracted[0]]
-                                    annotation = "[TABLE: " + " | ".join(first_row) + "]"
+                                if extracted:
+                                    table_text = "\n".join(
+                                        " | ".join(str(cell).strip() if cell is not None else '' for cell in row)
+                                        for row in extracted if any(cell is not None for cell in row)
+                                    )
+                                    if table_text.strip():
+                                        annotation = f"[TABLE:\n{table_text}\n]"
+                                        # Truncate if it exceeds reasonable context window size
+                                        if len(annotation) > 4000:
+                                            annotation = annotation[:4000] + "\n...]"
+                                    else:
+                                        annotation = "[TABLE]"
                                 else:
                                     annotation = "[TABLE]"
                             except Exception:
@@ -305,8 +335,10 @@ class SmartSegmenter:
                             current_text_lines.append("[/CODE]")
                             in_code_block = False
 
-                        # Chapter-level header: significant size jump AND short enough to be a title
-                        is_header = (len(text) < 80 and max_size >= header_threshold)
+                        is_bold = line.get('is_bold', False)
+
+                        # Chapter-level header: significant size jump OR bold, AND short enough to be a title
+                        is_header = (len(text) < 80 and (max_size >= header_threshold or is_bold))
 
                         if is_header:
                             if in_code_block:
@@ -334,57 +366,75 @@ class SmartSegmenter:
 
         return blocks, page_count
 
-    def _merge_to_target(
+    def _merge_short_blocks(
         self,
-        blocks: List[Tuple[Optional[str], str]],
-        max_segments: int
+        blocks: List[Tuple[Optional[str], str]]
     ) -> List[Tuple[Optional[str], str]]:
-        """Greedily merge adjacent block pairs until len(blocks) <= max_segments.
+        """Greedily merge adjacent block pairs until no adjacent pair is under max_chars.
 
-        At each step merges the pair whose combined text is shortest (least information
-        loss heuristic). The heading of the first block in each merged pair is kept.
+        At each step merges the pair whose combined text is shortest, provided the
+        combined length does not exceed self.max_chars (avoids arbitrary page thresholds).
         """
         blocks = list(blocks)  # copy
-        while len(blocks) > max_segments:
+        while len(blocks) > 1:
             # Find adjacent pair with smallest combined text length
             best_i = min(range(len(blocks) - 1),
                          key=lambda i: len(blocks[i][1]) + len(blocks[i+1][1]))
             h0, t0 = blocks[best_i]
             h1, t1 = blocks[best_i + 1]
-            blocks[best_i] = (h0, t0 + "\n\n" + t1)
-            blocks.pop(best_i + 1)
-        logger.debug(f"Block merge: targeted {max_segments} segments → {len(blocks)} blocks")
+            
+            if len(t0) + len(t1) < self.max_chars:
+                blocks[best_i] = (h0 if h0 else h1, t0 + "\n\n" + t1)
+                blocks.pop(best_i + 1)
+            else:
+                break
+                
+        logger.debug(f"Block merge: resulted in {len(blocks)} blocks")
         return blocks
 
     def _chunk_text(self, text: str) -> List[str]:
-        """Split text that exceeds max_chars safely by sentence boundaries."""
+        """Split text that exceeds max_chars safely by paragraph and sentence boundaries."""
         if len(text) <= self.max_chars:
             return [text]
 
         chunks = []
-        sentences = re.split(r'(?<=[.!?])\s+|\n\n', text)
+        paragraphs = re.split(r'\n\n+', text)
 
         current_chunk = ""
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence: continue
+        for p in paragraphs:
+            p = p.strip()
+            if not p: continue
 
-            # If a single sentence is bizarrely long, hard-split it
-            if len(sentence) > self.max_chars:
+            if len(p) > self.max_chars:
+                sentences = re.split(r'(?<=[.!?])\s+', p)
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence: continue
+
+                    if len(sentence) > self.max_chars:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                            current_chunk = ""
+                        for i in range(0, len(sentence), self.max_chars):
+                            chunks.append(sentence[i:i + self.max_chars])
+                        continue
+
+                    if len(current_chunk) + len(sentence) + 1 > self.max_chars:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = sentence + " "
+                    else:
+                        current_chunk += sentence + " "
+                
                 if current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-                for i in range(0, len(sentence), self.max_chars):
-                    chunks.append(sentence[i:i + self.max_chars])
-                continue
-
-            if len(current_chunk) + len(sentence) + 1 > self.max_chars:
-                chunks.append(current_chunk.strip())
-                current_chunk = sentence + " "
+                    current_chunk += "\n\n"
             else:
-                current_chunk += sentence + " "
+                if len(current_chunk) + len(p) + 2 > self.max_chars:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = p + "\n\n"
+                else:
+                    current_chunk += p + "\n\n"
 
-        if current_chunk:
+        if current_chunk.strip():
             chunks.append(current_chunk.strip())
 
         return chunks

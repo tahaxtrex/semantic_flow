@@ -1,6 +1,8 @@
 import json
 import logging
 import re
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import pdfplumber
@@ -30,36 +32,95 @@ class CourseMetadata(BaseModel):
     prerequisites: List[str] = Field(default_factory=list)
     learning_outcomes: List[str] = Field(default_factory=list)
 
-class MetadataIngestor:
-    """Handles extraction of metadata from external files or the PDF itself."""
 
-    def __init__(self, pdf_path: Path):
-        self.pdf_path = Path(pdf_path)
-        self.base_name = self.pdf_path.stem
-        self.dir_path = self.pdf_path.parent
+class MetadataIngestor:
+    """Handles extraction of metadata from external files, URLs, or the PDF itself.
+    
+    Supports two modes:
+      1. Explicit source (--metadata flag): extracts from the given file/URL.
+      2. Auto-scan (default): checks for sibling .json/.txt/.html files matching
+         the PDF basename, then falls back to native PDF extraction.
+    
+    Can also be run standalone to produce a reviewable JSON file:
+        python3 -m src.metadata --pdf <path> --output <path.json>
+    """
+
+    def __init__(self, course_pdf_path: Path, metadata_source: Optional[str] = None):
+        self.metadata_source = str(metadata_source) if metadata_source else None
+        self.course_pdf_path = Path(course_pdf_path)
+        self.base_name = self.course_pdf_path.stem
+        self.dir_path = self.course_pdf_path.parent
 
     def ingest(self) -> CourseMetadata:
-        """Attempt to read from external files, fallback to PDF extraction."""
-        # Check JSON
+        """Extract metadata from the explicit source if provided, otherwise auto-scan."""
+        # --- Explicit source path (when --metadata is provided) ---
+        if self.metadata_source:
+            logger.info(f"Extracting metadata from explicit source: {self.metadata_source}")
+
+            # URL
+            if self.metadata_source.startswith("http://") or self.metadata_source.startswith("https://"):
+                return self._parse_url()
+
+            path = Path(self.metadata_source)
+            if not path.exists():
+                logger.warning(f"Metadata file {path} not found. Using default.")
+                return CourseMetadata(source=self.course_pdf_path.name)
+
+            ext = path.suffix.lower()
+            if ext == '.json':
+                return self._parse_json(path)
+            elif ext == '.txt':
+                return self._parse_txt(path)
+            elif ext == '.html':
+                return self._parse_html(path)
+            elif ext == '.pdf':
+                return self._extract_metadata_from_pdf(path)
+            else:
+                logger.warning(f"Unsupported metadata extension {ext}. Treating as PDF.")
+                return self._extract_metadata_from_pdf(path)
+
+        # --- Auto-scan fallback (original behavior when no --metadata flag) ---
         json_path = self.dir_path / f"{self.base_name}.json"
         if json_path.exists():
             logger.info(f"Found external metadata JSON: {json_path}")
             return self._parse_json(json_path)
 
-        # Check txt
         txt_path = self.dir_path / f"{self.base_name}.txt"
         if txt_path.exists():
             logger.info(f"Found external metadata TXT: {txt_path}")
             return self._parse_txt(txt_path)
 
-        # Check html
         html_path = self.dir_path / f"{self.base_name}.html"
         if html_path.exists():
             logger.info(f"Found external metadata HTML: {html_path}")
             return self._parse_html(html_path)
 
         logger.info(f"No external metadata found for '{self.base_name}'. Falling back to PDF extraction.")
-        return self._extract_metadata_from_pdf()
+        return self._extract_metadata_from_pdf(self.course_pdf_path)
+
+    # ── Parsers ──────────────────────────────────────────────────────────
+
+    def _parse_url(self) -> CourseMetadata:
+        try:
+            req = urllib.request.Request(self.metadata_source, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                content = response.read().decode('utf-8', errors='ignore')
+
+                if self.metadata_source.endswith('.json') or content.strip().startswith('{'):
+                    try:
+                        data = json.loads(content)
+                        valid_fields = CourseMetadata.model_fields.keys()
+                        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+                        return CourseMetadata(**filtered_data)
+                    except Exception:
+                        pass
+
+                metadata = CourseMetadata(source=self.metadata_source)
+                self._infer_from_text(metadata, content)
+                return metadata
+        except Exception as e:
+            logger.error(f"Failed to fetch metadata from URL {self.metadata_source}: {e}")
+            return CourseMetadata(source=self.course_pdf_path.name)
 
     def _parse_json(self, path: Path) -> CourseMetadata:
         try:
@@ -70,7 +131,7 @@ class MetadataIngestor:
             return CourseMetadata(**filtered_data)
         except Exception as e:
             logger.error(f"Failed to parse JSON {path}: {e}")
-            return CourseMetadata(source=self.pdf_path.name)
+            return CourseMetadata(source=self.course_pdf_path.name)
 
     def _parse_txt(self, path: Path) -> CourseMetadata:
         data = {}
@@ -89,26 +150,25 @@ class MetadataIngestor:
             return CourseMetadata(**filtered_data)
         except Exception as e:
             logger.error(f"Failed to parse TXT {path}: {e}")
-            return CourseMetadata(source=self.pdf_path.name)
+            return CourseMetadata(source=self.course_pdf_path.name)
 
     def _parse_html(self, path: Path) -> CourseMetadata:
         logger.warning(f"HTML metadata extraction is basic. Using default for {path.name}.")
-        return CourseMetadata(source=self.pdf_path.name)
+        return CourseMetadata(source=self.course_pdf_path.name)
 
-    def _extract_metadata_from_pdf(self) -> CourseMetadata:
+    def _extract_metadata_from_pdf(self, pdf_path: Path) -> CourseMetadata:
         """Extract metadata from PDF properties and infer audience/prerequisites/outcomes
-        from the first 3 body pages (critic.md Issue 7)."""
-        metadata = CourseMetadata(source=self.pdf_path.name)
+        from the first 15 body pages or 5000 words (critic.md Issue 7)."""
+        metadata = CourseMetadata(source=pdf_path.name)
         try:
-            with pdfplumber.open(self.pdf_path) as pdf:
-                # --- Standard PDF document info ---
+            with pdfplumber.open(pdf_path) as pdf:
                 doc_info = pdf.metadata or {}
 
                 title = doc_info.get('Title')
                 if title and isinstance(title, str) and title.strip():
                     metadata.title = title
                 else:
-                    metadata.title = self.pdf_path.stem.replace('_', ' ').replace('-', ' ').title()
+                    metadata.title = pdf_path.stem.replace('_', ' ').replace('-', ' ').title()
 
                 author = doc_info.get('Author')
                 if author and isinstance(author, str) and author.strip():
@@ -118,22 +178,27 @@ class MetadataIngestor:
                 if subject and isinstance(subject, str) and subject.strip():
                     metadata.subject = subject
 
-                # --- Text-based inference from first 3 pages (Issue 7) ---
+                # Text-based inference from first 15 pages or 5000 words
                 intro_text = ""
-                scan_pages = min(3, len(pdf.pages))
+                scan_pages = min(15, len(pdf.pages))
+                word_count = 0
                 for page in pdf.pages[:scan_pages]:
                     H = float(page.height)
                     W = float(page.width)
-                    # Crop to body region
                     body = page.within_bbox((0, H * 0.10, W, H * 0.92))
                     words = body.extract_words()
-                    intro_text += " ".join(w['text'] for w in words) + "\n"
+                    page_text = " ".join(w['text'] for w in words)
+                    intro_text += page_text + "\n"
+
+                    word_count += len(page_text.split())
+                    if word_count > 5000:
+                        break
 
                 if intro_text.strip():
                     self._infer_from_text(metadata, intro_text)
 
         except Exception as e:
-            logger.error(f"Failed to extract metadata from PDF {self.pdf_path}: {e}")
+            logger.error(f"Failed to extract metadata from PDF {pdf_path}: {e}")
 
         return metadata
 
@@ -171,3 +236,44 @@ class MetadataIngestor:
             if found:
                 metadata.learning_outcomes = found
                 logger.info(f"Inferred learning_outcomes: {found}")
+
+
+# ── Standalone CLI ───────────────────────────────────────────────────────
+# Usage:
+#   python3 -m src.metadata --pdf data/courses/Dsa.pdf --output data/courses/Dsa_metadata.json
+#   python3 -m src.metadata --pdf data/courses/Dsa.pdf --metadata https://example.com/meta.json --output out.json
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    parser = argparse.ArgumentParser(
+        description="Standalone Metadata Extractor — extract course metadata to a reviewable JSON file."
+    )
+    parser.add_argument("--pdf", type=str, required=True, help="Path to the course PDF.")
+    parser.add_argument("--metadata", type=str, default=None,
+                        help="Optional explicit path or URL to an external metadata source.")
+    parser.add_argument("--output", type=str, required=True,
+                        help="Path to save the extracted JSON metadata for review.")
+
+    args = parser.parse_args()
+
+    pdf_path = Path(args.pdf)
+    if not pdf_path.exists():
+        logger.error(f"PDF file not found: {pdf_path}")
+        sys.exit(1)
+
+    ingestor = MetadataIngestor(course_pdf_path=pdf_path, metadata_source=args.metadata)
+    metadata = ingestor.ingest()
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(metadata.model_dump_json(indent=2))
+
+    print(f"\n✅ Metadata saved to: {output_path}")
+    print("   Review and edit the JSON, then pass it to the evaluator:")
+    print(f"   python3 -m src.main --input <courses_dir> --output <output_dir> --metadata {output_path}")

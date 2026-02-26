@@ -9,3 +9,5 @@ __pycache__/
 .claude/
 .ai
 .ai/
+tests
+tests/

@@ -6,6 +6,8 @@ import time
 import yaml
 from pathlib import Path
 
+from typing import List, Tuple
+
 from anthropic import Anthropic
 from google import genai
 from google.genai import types
@@ -14,64 +16,53 @@ from src.models import Segment, CourseMetadata, EvaluatedSegment, SectionScores,
 
 logger = logging.getLogger(__name__)
 
-# After this many consecutive segment-level Claude failures (after all retries exhausted)
-# the evaluator permanently switches to Gemini for the remainder of the run.
-_MAX_CLAUDE_FAILURES = 2
-
-# Per-segment retry budget for each model before escalating.
-MAX_RETRIES_PER_SEGMENT = 3
+# Per-batch retry budget for the selected model.
+MAX_RETRIES_PER_BATCH = 3
 RETRY_BACKOFF_SECONDS = 5  # doubles each attempt: 5s → 10s → 20s
 
 
 class LLMEvaluator:
-    """Evaluates pedagogical segments using Claude with a Gemini fallback.
+    """Evaluates pedagogical segments using Claude or Gemini in batched mode.
 
-    Retry logic: each model gets MAX_RETRIES_PER_SEGMENT attempts on the SAME
-    segment (with exponential back-off) before escalating to the other model or
-    hard-failing. Claude is permanently disabled after _MAX_CLAUDE_FAILURES
-    consecutive segment-level failures (i.e. all retries for a segment exhausted).
+    Features:
+    - Batching: Evaluates multiple segments per API call to save on system prompt tokens.
+    - System Prompt Isolation: Rubrics are isolated to the system prompt.
+    - No Cascading: To preserve scientific validity, a run uses exactly one model 
+      and fails loudly if it exhausts retries, rather than silently blending results.
     """
 
-    def __init__(self, config_path: Path):
+    def __init__(self, config_path: Path, preferred_model: str = "claude"):
         self.config_path = Path(config_path)
         self.rubrics = self._load_rubrics()
-
-        self._claude_failure_count = 0
-        self._claude_disabled = False
+        self.preferred_model = preferred_model.lower()
 
         self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         self.gemini_key = os.getenv("GEMINI_API_KEY")
 
-        if self.anthropic_key:
+        if self.preferred_model == "claude":
+            if not self.anthropic_key:
+                logger.critical("ANTHROPIC_API_KEY missing but Claude was requested.")
+                raise ValueError("ANTHROPIC_API_KEY is required for Claude model")
             self.anthropic_client = Anthropic(api_key=self.anthropic_key)
-        else:
-            self.anthropic_client = None
-            logger.warning("ANTHROPIC_API_KEY missing. Primary model will fail.")
-
-        if self.gemini_key:
+            self.gemini_client = None
+        elif self.preferred_model == "gemini":
+            if not self.gemini_key:
+                logger.critical("GEMINI_API_KEY missing but Gemini was requested.")
+                raise ValueError("GEMINI_API_KEY is required for Gemini model")
             self.gemini_client = genai.Client(api_key=self.gemini_key)
             self.gemini_model = 'gemini-2.5-flash'
+            self.anthropic_client = None
         else:
-            self.gemini_client = None
-            logger.warning("GEMINI_API_KEY missing. Fallback model will fail.")
+            raise ValueError(f"Unsupported model requested: {self.preferred_model}")
 
     def _load_rubrics(self) -> str:
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
         return yaml.dump(data, sort_keys=False)
 
-    def _build_prompt(self, metadata: CourseMetadata, segment: Segment) -> str:
-        segment_type_note = ""
-        if segment.segment_type != "instructional":
-            segment_type_note = (
-                f"\n- This segment is classified as type: **{segment.segment_type}**. "
-                "It is not instructional narrative — adjust rubric scoring accordingly. "
-                "Exercises and solutions do not require instructional flow or goal focus; "
-                "reference tables do not require pedagogical clarity."
-            )
-
-        prompt = f"""
-You are an expert pedagogical evaluator. Evaluate the following course segment based strictly on the provided rubrics.
+    def _build_batch_prompts(self, metadata: CourseMetadata, segments: List[Segment]) -> Tuple[str, str]:
+        system_prompt = f"""
+You are an expert pedagogical evaluator. Evaluate the provided course segments based strictly on the following rubrics.
 
 COURSE METADATA:
 Title: {metadata.title}
@@ -82,122 +73,136 @@ Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_o
 RUBRICS:
 {self.rubrics}
 
-SEGMENT TEXT (Heading: {segment.heading or 'None'}):
-{segment.text}
-
 EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
 - Figures referenced in the text (e.g. "Fig. 1.1") are not available as images. Evaluate figure references positively as indicators of visual support.
 - [FIGURE X.Y: caption] markers show a figure caption extracted from the PDF — treat as evidence of visual content.
 - Text was extracted from PDF; minor formatting artifacts (e.g. [?] placeholders) are NOT a property of the course.
 - [TABLE: ...] markers indicate a table was detected but could not be rendered as prose — treat as a structured reference element, not missing content.
-- [CODE] / [/CODE] blocks contain verbatim code examples extracted from a monospace font region.{segment_type_note}
+- [CODE] / [/CODE] blocks contain verbatim code examples extracted from a monospace font region.
 
-Your response must be ONLY valid JSON adhering to the following structure. Do not include markdown blocks or any other text.
-{{
-    "scores": {{
-        "goal_focus": <int 1-10>,
-        "text_readability": <int 1-10>,
-        "pedagogical_clarity": <int 1-10>,
-        "prerequisite_alignment": <int 1-10>,
-        "fluidity_continuity": <int 1-10>,
-        "structural_usability": <int 1-10>,
-        "example_concreteness": <int 1-10>,
-        "example_coherence": <int 1-10>,
-        "business_relevance": <int 1-10>,
-        "instructional_alignment": <int 1-10>
-    }},
-    "reasoning": {{
-        "goal_focus_rationale": "...",
-        "text_readability_rationale": "...",
-        "pedagogical_clarity_rationale": "...",
-        "prerequisite_alignment_rationale": "...",
-        "fluidity_continuity_rationale": "...",
-        "structural_usability_rationale": "...",
-        "example_concreteness_rationale": "...",
-        "example_coherence_rationale": "...",
-        "business_relevance_rationale": "...",
-        "instructional_alignment_rationale": "..."
+Your response must be ONLY a valid JSON array of evaluation objects, one for each segment provided. Do not include markdown blocks or any other text. The JSON array must adhere exactly to the following structure:
+[
+    {{
+        "segment_id": <int>,
+        "scores": {{
+            "goal_focus": <int 1-10>,
+            "text_readability": <int 1-10>,
+            "pedagogical_clarity": <int 1-10>,
+            "prerequisite_alignment": <int 1-10>,
+            "fluidity_continuity": <int 1-10>,
+            "structural_usability": <int 1-10>,
+            "example_concreteness": <int 1-10>,
+            "example_coherence": <int 1-10>,
+            "business_relevance": <int 1-10>,
+            "instructional_alignment": <int 1-10>
+        }},
+        "reasoning": {{
+            "goal_focus_rationale": "...",
+            "text_readability_rationale": "...",
+            "pedagogical_clarity_rationale": "...",
+            "prerequisite_alignment_rationale": "...",
+            "fluidity_continuity_rationale": "...",
+            "structural_usability_rationale": "...",
+            "example_concreteness_rationale": "...",
+            "example_coherence_rationale": "...",
+            "business_relevance_rationale": "...",
+            "instructional_alignment_rationale": "..."
+        }}
     }}
-}}
+]
 """
-        return prompt.strip()
+        user_prompt = "Score the following segments:\n\n"
+        for s in segments:
+            user_prompt += f"--- SEGMENT ID: {s.segment_id} ---\n"
+            user_prompt += f"Heading: {s.heading or 'None'}\n"
+            user_prompt += f"Text:\n{s.text}\n\n"
 
-    def _retry_call(self, call_fn, model_name: str, segment: Segment):
-        """Call call_fn with per-segment retry + exponential back-off.
+        return system_prompt.strip(), user_prompt.strip()
 
-        Returns the result on success. Raises the last exception if all attempts fail.
-        """
+    def _retry_call(self, call_fn, model_name: str, batch_size: int):
         last_exc = None
-        for attempt in range(1, MAX_RETRIES_PER_SEGMENT + 1):
+        for attempt in range(1, MAX_RETRIES_PER_BATCH + 1):
             try:
                 result = call_fn()
                 if attempt > 1:
                     logger.info(
-                        f"{model_name} succeeded on attempt {attempt}/{MAX_RETRIES_PER_SEGMENT} "
-                        f"for Segment {segment.segment_id}."
+                        f"{model_name} succeeded on attempt {attempt}/{MAX_RETRIES_PER_BATCH} "
+                        f"for batch of {batch_size} segments."
                     )
                 return result
             except Exception as e:
                 last_exc = e
                 wait = RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))  # 5, 10, 20
-                if attempt < MAX_RETRIES_PER_SEGMENT:
+                if attempt < MAX_RETRIES_PER_BATCH:
+                    err_str = str(e).lower()
+                    if not any(indicator in err_str for indicator in ['429', '503', 'rate limit', 'quota', 'service unavailable', 'overloaded']):
+                        logger.error(f"{model_name} failed with non-retryable error for batch: {e}")
+                        raise e
+
                     logger.warning(
-                        f"{model_name} attempt {attempt}/{MAX_RETRIES_PER_SEGMENT} failed for "
-                        f"Segment {segment.segment_id}: {e}. Retrying in {wait}s..."
+                        f"{model_name} attempt {attempt}/{MAX_RETRIES_PER_BATCH} failed handling batch. "
+                        f"Retrying in {wait}s... Error: {e}"
                     )
                     time.sleep(wait)
                 else:
                     logger.error(
-                        f"{model_name} exhausted all {MAX_RETRIES_PER_SEGMENT} retries for "
-                        f"Segment {segment.segment_id}: {e}"
+                        f"{model_name} exhausted all {MAX_RETRIES_PER_BATCH} retries for batch."
                     )
         raise last_exc
 
-    def evaluate(self, metadata: CourseMetadata, segment: Segment) -> EvaluatedSegment:
-        prompt = self._build_prompt(metadata, segment)
+    def evaluate_batch(self, metadata: CourseMetadata, segments: List[Segment]) -> List[EvaluatedSegment]:
+        results = []
+        instructional_segments = []
 
-        # 1. Primary Model: Claude (skip if permanently disabled this run)
-        if not self._claude_disabled:
-            try:
-                result = self._retry_call(
-                    lambda: self._call_claude(prompt, segment),
-                    "Claude",
-                    segment
-                )
-                self._claude_failure_count = 0  # reset streak on segment success
-                return result
-            except Exception as e:
-                self._claude_failure_count += 1
-                logger.error(
-                    f"Claude failed all retries for Segment {segment.segment_id}: {e}"
-                )
-                if self._claude_failure_count >= _MAX_CLAUDE_FAILURES:
-                    logger.warning(
-                        f"Claude has failed {self._claude_failure_count} consecutive segment(s). "
-                        "Permanently switching to Gemini for the remainder of this run (ADR-007)."
+        for segment in segments:
+            if segment.segment_type != "instructional":
+                logger.info(f"Bypassing LLM evaluation for non-instructional segment: {segment.segment_id} ({segment.segment_type})")
+                results.append(EvaluatedSegment(
+                    segment_id=segment.segment_id,
+                    heading=segment.heading,
+                    text=segment.text,
+                    segment_type=segment.segment_type,
+                    scores=SectionScores(
+                        goal_focus=0, text_readability=0, pedagogical_clarity=0, prerequisite_alignment=0,
+                        fluidity_continuity=0, structural_usability=0, example_concreteness=0,
+                        example_coherence=0, business_relevance=0, instructional_alignment=0
+                    ),
+                    reasoning=SectionReasoning(
+                        goal_focus_rationale="N/A", text_readability_rationale="N/A", pedagogical_clarity_rationale="N/A",
+                        prerequisite_alignment_rationale="N/A", fluidity_continuity_rationale="N/A", structural_usability_rationale="N/A",
+                        example_concreteness_rationale="N/A", example_coherence_rationale="N/A", business_relevance_rationale="N/A",
+                        instructional_alignment_rationale="N/A"
                     )
-                    self._claude_disabled = True
-                else:
-                    logger.info(
-                        f"Claude segment failure {self._claude_failure_count}/{_MAX_CLAUDE_FAILURES}. "
-                        "Cascading to Gemini 2.5 Flash for this segment..."
-                    )
-        else:
-            logger.info(f"Claude disabled this run. Routing Segment {segment.segment_id} directly to Gemini.")
+                ))
+            else:
+                instructional_segments.append(segment)
 
-        # 2. Fallback Model: Gemini 2.5 Flash (also with per-segment retries)
-        try:
-            return self._retry_call(
-                lambda: self._call_gemini(prompt, segment),
-                "Gemini",
-                segment
+        if not instructional_segments:
+            return sorted(results, key=lambda x: x.segment_id)
+
+        system_prompt, user_prompt = self._build_batch_prompts(metadata, instructional_segments)
+
+        # Evaluate using strict model selection (no cascading between Claude and Gemini mid-run)
+        if self.anthropic_client:
+            evals = self._retry_call(
+                lambda: self._call_claude_batch(system_prompt, user_prompt, instructional_segments),
+                "Claude",
+                len(instructional_segments)
             )
-        except Exception as gemini_e:
-            logger.error(f"Gemini evaluation ALSO failed all retries for Segment {segment.segment_id}: {gemini_e}")
-            logger.critical("Fatal API Error. Both models exhausted retries. Hard crashing per ADR-002.")
-            sys.exit(1)
+        elif self.gemini_client:
+            evals = self._retry_call(
+                lambda: self._call_gemini_batch(system_prompt, user_prompt, instructional_segments),
+                "Gemini",
+                len(instructional_segments)
+            )
+        else:
+            logger.critical("Fatal: Both clients are missing API keys.")
+            raise ValueError("No API client configured.")
 
-    def _parse_json_result(self, text: str) -> dict:
+        results.extend(evals)
+        return sorted(results, key=lambda x: x.segment_id)
+
+    def _parse_json_result(self, text: str) -> list:
         text = text.strip()
         if text.startswith("```json"):
             text = text[7:]
@@ -207,38 +212,45 @@ Your response must be ONLY valid JSON adhering to the following structure. Do no
             text = text[:-3]
         return json.loads(text.strip())
 
-    def _call_claude(self, prompt: str, segment: Segment) -> EvaluatedSegment:
-        if not self.anthropic_client:
-            raise ValueError("Anthropic API key not configured")
+    def _match_evaluations(self, data: list, segments: List[Segment]) -> List[EvaluatedSegment]:
+        evals = []
+        data_by_id = {item["segment_id"]: item for item in data if "segment_id" in item}
 
-        logger.info(f"Evaluating Segment {segment.segment_id} via Claude")
+        for segment in segments:
+            if segment.segment_id not in data_by_id:
+                raise ValueError(f"Missing evaluation for segment_id {segment.segment_id} in LLM output.")
+
+            item = data_by_id[segment.segment_id]
+            scores = SectionScores(**item.get("scores", {}))
+            reasoning = SectionReasoning(**item.get("reasoning", {}))
+
+            evals.append(EvaluatedSegment(
+                segment_id=segment.segment_id,
+                heading=segment.heading,
+                text=segment.text,
+                segment_type=segment.segment_type,
+                scores=scores,
+                reasoning=reasoning
+            ))
+        return evals
+
+    def _call_claude_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
+        logger.info(f"Evaluating batch of {len(segments)} segments via Claude")
         response = self.anthropic_client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=2500,
+            max_tokens=4000,
             temperature=0.2,
-            messages=[{"role": "user", "content": prompt}]
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
         )
 
         raw_text = response.content[0].text
         data = self._parse_json_result(raw_text)
+        return self._match_evaluations(data, segments)
 
-        scores = SectionScores(**data.get("scores", {}))
-        reasoning = SectionReasoning(**data.get("reasoning", {}))
-
-        return EvaluatedSegment(
-            segment_id=segment.segment_id,
-            heading=segment.heading,
-            text=segment.text,
-            segment_type=segment.segment_type,
-            scores=scores,
-            reasoning=reasoning
-        )
-
-    def _call_gemini(self, prompt: str, segment: Segment) -> EvaluatedSegment:
-        if not self.gemini_client:
-            raise ValueError("Gemini API key not configured")
-
-        logger.info(f"Evaluating Segment {segment.segment_id} via Gemini")
+    def _call_gemini_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
+        logger.info(f"Evaluating batch of {len(segments)} segments via Gemini")
+        prompt = system_prompt + "\n\n" + user_prompt
         response = self.gemini_client.models.generate_content(
             model=self.gemini_model,
             contents=prompt,
@@ -249,14 +261,4 @@ Your response must be ONLY valid JSON adhering to the following structure. Do no
         )
 
         data = self._parse_json_result(response.text)
-        scores = SectionScores(**data.get("scores", {}))
-        reasoning = SectionReasoning(**data.get("reasoning", {}))
-
-        return EvaluatedSegment(
-            segment_id=segment.segment_id,
-            heading=segment.heading,
-            text=segment.text,
-            segment_type=segment.segment_type,
-            scores=scores,
-            reasoning=reasoning
-        )
+        return self._match_evaluations(data, segments)

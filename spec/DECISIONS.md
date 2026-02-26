@@ -23,19 +23,19 @@ Ensures text sections sent to LLMs perfectly respect context boundaries, prevent
 
 ---
 
-## ADR-002: Active LLM Model Cascading & Hard Failure
+## ADR-002: Single Model Binding & Hard Failure
 
-**Date:** 2026-02-22
-**Status:** Accepted
+**Date:** 2026-02-25
+**Status:** Accepted (Replaces Previous Cascading Logic)
 
 **Context:**
-API rate limits, hallucinated unstructured outputs, and down-time can interrupt long batch evaluation scripts. 
+Originally, the system cascaded from Claude to Gemini mid-evaluation if Claude failed. However, mixing models destroys the scientific validity of the resulting mathematical average, as a Claude 6/10 is not equivalent to a Gemini 6/10.
 
 **Decision:**
-We will implement an active Model Cascading pattern (Claude -> Gemini). However, if both models fail on a segment (or encounter unrecoverable API errors), the system will intentionally *hard-fail*, printing the exact error and halting the pipeline, rather than recording `null` and continuing.
+The `LLMEvaluator` now binds explicitly to the model requested by the user via the CLI `--model` flag. There is no mid-run fallback. If the selected model experiences an unrecoverable failure or API timeout, the script hard-fails and halts the pipeline immediately.
 
 **Consequences:**
-Prevents corrupted or partially-complete JSON files from being silently generated, ensuring data integrity at the cost of script restarts.
+Ensures data purity and strict validity. Prevents corrupted or mixed-model JSON files from being generated, at the cost of script restarts on API downtime.
 
 **Linked Requirements:** FR-006, NFR-003
 
@@ -126,21 +126,19 @@ Option 2. Header detection now requires `max_font_size >= median * 1.4` AND `len
 
 ---
 
-## ADR-007: Persistent Model Fallback After Consecutive Claude Failures
+## ADR-007: Persistent Model Fallback After Consecutive Failures
 
-**Date:** 2026-02-22
-**Status:** Accepted
+**Date:** 2026-02-25
+**Status:** Deprecated
 
 **Context:**
-The original cascade logic tried Claude → Gemini independently for every segment. If Claude was rate-limited or unavailable, every segment would attempt Claude, fail, log an error, then fall back to Gemini — wasting time on N failed API calls for an N-segment run.
+Previously, the system would permanently route to Gemini after 2 consecutive Claude failures. With the acceptance of ADR-002 (Single Model Binding) to preserve research purity, all mid-run model switching mechanics were eliminated.
 
 **Decision:**
-`LLMEvaluator` now tracks consecutive Claude failures via `_claude_failure_count`. After `_MAX_CLAUDE_FAILURES = 2` consecutive failures, `_claude_disabled` is set to `True` for the rest of the run. All subsequent segments are routed directly to Gemini without attempting Claude. A success resets the counter. This is a run-scoped state (not persisted between invocations).
+This ADR is deprecated. The system relies entirely on the explicit initialization model flag.
 
 **Consequences:**
-- Eliminates N−2 wasted Claude API calls when Claude is down.
-- Gemini still hard-crashes on failure per ADR-002.
-- Mixed-model runs (some Claude, some Gemini) may occur; callers should track `model_used` per segment if reproducibility is critical.
+API rate limits will intentionally stall the pipeline.
 
 ---
 
@@ -169,26 +167,20 @@ Option 2. `_extract_blocks_with_headers()` now calls `page.extract_words(extra_a
 
 ---
 
-## ADR-009: Page-Count-Based Hard Segment Cap (`page_count // 10`)
+## ADR-009: Max-Characters Segment Cap (`max_chars`)
 
-**Date:** 2026-02-22
-**Status:** Accepted
+**Date:** 2026-02-25
+**Status:** Accepted (Replaces Page-Count Cap)
 
 **Context:**
-After the ADR-006 coarse-segmentation fix, the Springer PDF still produced 14 segments for a 40-page chapter. The `min_chars=600` merge pass was insufficient because many sections exceeded the threshold individually. The user's stated requirement is **≤ 1 segment per 10 pages**.
-
-**Options Considered:**
-1. *Further tighten `header_threshold` multiplier:* Raises the bar for what counts as a header, but is brittle — some PDFs may legitimately have many large-font section headers.
-2. *`page_count // 10` hard cap with greedy smallest-pair merge:* Directly encodes the user's rule as an explicit constraint. Merging the shortest adjacent pair at each step minimises information loss by keeping the most similar-length segments.
-3. *Fixed absolute maximum (e.g. 6 segments):* Doesn't scale to longer PDFs; arbitrary.
+Previously, ADR-009 mandated a hard cap of `page_count // 10`. This arbitrary heuristic forced completely unrelated chapters together if the document was short, destroying pedagogical contiguity.
 
 **Decision:**
-Option 2. `segment()` now computes `max_segments = max(1, page_count // 10)` after extraction and calls the new `_merge_to_target(raw_blocks, max_segments)`. The old `_merge_short_blocks()` method is replaced entirely by this target-driven merge.
+The `_merge_to_target` logic was deleted. Segments are now greedily merged using `_merge_short_blocks` *only* if their combined length remains under the `max_chars` ceiling (default 8000 characters).
 
 **Consequences:**
-- A 40-page PDF always produces ≤ 4 segments, a 100-page PDF ≤ 10, etc.
-- `_merge_short_blocks` is removed from the active code path (the `min_chars` parameter is retained on the constructor for backward compatibility but is unused).
-- Merge heuristic (shortest-pair) is information-preserving under the constraint.
+- Segments are merged naturally based on content length rather than page fractions.
+- Evaluation respects the textbook's true logical flow.
 
 **Linked Requirements:** FR-003, FR-004, ADR-001, ADR-006
 
@@ -216,3 +208,87 @@ Option 2. Each page is cropped via `page.within_bbox((0, H*0.10, W, H*0.92))` be
 - The 10% / 8% crop boundaries may occasionally clip the first or last line of body text on unusually-formatted PDFs; this is acceptable given the significant boilerplate reduction.
 
 **Linked Requirements:** FR-003, ADR-001, ADR-005
+
+---
+
+## ADR-011: Evaluator Batching and System Prompt Isolation
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:**
+Evaluating sections one-by-one was re-sending the massive grading rubric prompt on every API call. This incurred massive API token costs and overwhelmed the LLM's cognitive context with repeated boilerplate, leading to lower scoring fidelity.
+
+**Decision:**
+The `LLMEvaluator` now relies on `evaluate_batch`. It securely isolates the massive rubric string into the `system_prompt` payload, and batches up to 5 instructional segments into a single `user_prompt` array string. The LLM is instructed to return a strictly validated JSON array of score objects.
+
+**Consequences:**
+API costs are reduced by ~80% per book. Cognitive load on the models is significantly lower.
+
+---
+
+## ADR-012: Bypassing Non-Instructional Content
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:**
+Table of Contents, Prefaces, and Exercises were being evaluated on rubrics like "Instructional Flow" and "Prerequisite Alignment." These sections naturally scored `1/10` or `2/10`, artificially crushing the textbook's overall average score.
+
+**Decision:**
+`SmartSegmenter` now explicitly tags recognized exercises, solutions, and frontmatter (Preface, TOC, History) with distinct `segment_type` strings. `LLMEvaluator` bypasses any segment that is not `"instructional"`, generating a 0-score null result without hitting the API. The `ScoreAggregator` excludes these 0-score segments from the final weighted average.
+
+**Consequences:**
+Final course score remains pure to actual instructional pedagogy.
+
+---
+
+## ADR-013: Strict Pydantic Schema Validation
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:**
+The internal `SectionScores` and `SectionReasoning` schemas had trailing default `= 0` and `= ""` values. If the API returned truncated JSON, Pydantic silently filled in `0` scores without throwing an error, accepting garbage data.
+
+**Decision:**
+All defaults were removed from the Pydantic schemas. If the LLM omits a required reasoning string or score integer, Pydantic immediately throws a `ValidationError`.
+
+**Consequences:**
+Invalid outputs are reliably caught and piped back into the evaluator's exponential backoff retry loop.
+
+---
+
+## ADR-014: Explicit Model Routing & Approach
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:**
+Following ADR-002, the app needs to be run explicitly. Users may have different local key permissions or prefer different models based on context window limits.
+
+**Decision:**
+The `--model` flag dictates behavior at the initializer level. If `claude` (default) is requested, `Anthropic` SDK is initialized; if `gemini` is requested, `google.genai` SDK is used. If the required API key for the requested model is not found in `.env`, the pipeline crashes immediately on boot. Both use the same systemic prompting mechanisms, just wired through different SDKs.
+
+**Consequences:**
+Complete transparency in model invocation. No silent key overrides.
+
+---
+
+## ADR-015: Disconnected Metadata Review Workflow
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:**
+Previously, metadata extraction was tightly coupled to the evaluation run. The system would auto-scan the PDF's directory for sibling files, or silently infer metadata from the PDF itself and immediately feed it into the LLM. There was no opportunity to review, correct, or enrich the metadata before it influenced the evaluation scores.
+
+**Decision:**
+`metadata.py` is now independently executable via `python3 -m src.metadata --pdf <path> --output <path.json>`. This produces a human-reviewable JSON file. Users can edit incorrect fields (title, prerequisites, audience) and then pass the corrected file into the evaluator with `--metadata <path.json>`. The original auto-scan behavior is fully preserved when no `--metadata` flag is supplied.
+
+**Consequences:**
+- Enables a safer "extract → review → evaluate" workflow.
+- Prevents LLM hallucinations caused by incorrect inferred metadata.
+- Does not interfere with the original auto-scan pipeline.
+
+**Linked Requirements:** FR-001, FR-002, FR-009

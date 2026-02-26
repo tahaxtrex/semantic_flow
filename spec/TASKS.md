@@ -71,3 +71,24 @@
 - [x] TASK-022: Re-run evaluation on test PDF and validate segment count ≤ 4.
   - Spec ref: ADR-009, FR-003
   - Notes: Run full pipeline on the 40-page Springer test PDF. Verify `grep "Generated.*segments"` in log shows ≤ 4. Spot-check extracted text for absence of concatenated words.
+- [x] TASK-023: Implement Evaluator Batching mechanism for processing multiple segments per LLM call.
+  - Spec ref: NFR-001, ADR-011
+  - Notes: Add `evaluate_batch(metadata, segments)` to `LLMEvaluator`. Loop through arrays of size 5 rather than 1 per API call. Update system prompt.
+- [x] TASK-024: Remove model cascading and enforce explicit model routing.
+  - Spec ref: FR-006, ADR-002, ADR-014
+  - Notes: Drop the Claude fallback logic. Throw a hard HTTP error exception inside of the `evaluator.py` model routing tree if initialization or execution inherently fails.
+- [x] TASK-025: Implement non-instructional text detection and bypassing.
+  - Spec ref: NFR-001, ADR-012
+  - Notes: Identify and tag sections explicitly as `frontmatter`, `exercise`, or `solution`. Have the evaluator bypass the API call for segments that are not `instructional` and return 0 array structures.
+- [x] TASK-026: Calculate strictly weighted mathematical averages during Aggregation.
+  - Spec ref: FR-008
+  - Notes: Exclude 0-score null segments. Multiply each instructional block score by its character length, sum, and divide by the total instructional characters rather than a flat unweighted mean average.
+- [x] TASK-027: Harden `Pydantic` schemas in `models.py`.
+  - Spec ref: FR-007, ADR-013
+  - Notes: Remove any trailing default `= 0` declarations to force strict LLM omissions to be caught and piped to retry triggers rather than succeeding with bad data.
+- [x] TASK-028: Refactor `metadata.py` and `main.py` to utilize an explicit `--metadata` arguments flag.
+  - Spec ref: FR-001, FR-002
+  - Notes: Metadata extraction script must completely ignore auto text matching and only extract metadata if explicitly triggered using the `--metadata` flag. Support `.pdf`, `.json`, `.txt`, and `http` URLs.
+- [x] TASK-029: Make `metadata.py` independently executable as a standalone CLI tool.
+  - Spec ref: FR-009, ADR-015
+  - Notes: Add `if __name__ == "__main__"` block to `metadata.py`. Accept `--pdf`, `--metadata` (optional), and `--output` arguments. Output a human-reviewable JSON file that can be edited and fed back into the evaluator via `--metadata`.

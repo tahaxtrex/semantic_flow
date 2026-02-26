@@ -58,16 +58,31 @@ class ScoreAggregator:
         if not instructional_segments:
             logger.warning("No instructional segments found — falling back to scoring all segments.")
 
-        dimensions = overall_score.keys()
-        for segment in scoring_pool:
-            scores_dict = segment.scores.model_dump() if hasattr(segment.scores, 'model_dump') else segment.scores
+        dimensions = list(overall_score.keys())
+        total_weight = sum(len(segment.text) for segment in scoring_pool)
+        
+        if total_weight == 0:
+            logger.warning("Total weight of segments is zero. Cannot mathematically aggregate properly.")
+            num_scored = len(scoring_pool)
+            for segment in scoring_pool:
+                scores_dict = segment.scores.model_dump() if hasattr(segment.scores, 'model_dump') else segment.scores
+                for dim in dimensions:
+                    overall_score[dim] += scores_dict.get(dim, 0)
+            
+            if num_scored > 0:
+                for dim in dimensions:
+                    overall_score[dim] = round(overall_score[dim] / num_scored, 2)
+        else:
+            for segment in scoring_pool:
+                scores_dict = segment.scores.model_dump() if hasattr(segment.scores, 'model_dump') else segment.scores
+                weight = len(segment.text) / total_weight
+                for dim in dimensions:
+                    overall_score[dim] += scores_dict.get(dim, 0) * weight
+                    
             for dim in dimensions:
-                overall_score[dim] += scores_dict.get(dim, 0)
+                overall_score[dim] = round(overall_score[dim], 2)
 
         num_scored = len(scoring_pool)
-        for dim in dimensions:
-            overall_score[dim] = round(overall_score[dim] / num_scored, 2)
-
         logger.info(
             f"Mathematical aggregation complete. "
             f"Scored {num_scored}/{len(segments)} instructional segments."

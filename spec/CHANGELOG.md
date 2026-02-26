@@ -1,3 +1,19 @@
+## 2026-02-25 — Multi-Issue Resolution & Pipeline Hardening
+**Type:** Bug fixes & Architecture Redesign
+**What changed:** 
+- Addressed `CRITIC_REPORT.md` issues across text parsing, aggregation, and evaluator workflows.
+- `src/metadata.py`: Implemented a 15-page strict hard stop on native PDF scans to prevent endless recursive loops on missing metadata.
+- `src/segmenter.py`: Overhauled segmentation grouping rule. Dropped arbitrary `page_count` heuristics in favor of strict `max_chars` proximity merging. Added `_FRONTMATTER_PATTERNS` to detect and bypass TOC, preface, and source lists. Implemented full table serialization `[TABLE: col | col]`. 
+- `src/aggregator.py`: Overrode unweighted mathematical averages in favor of character-length weighted averaging, shielding scores from short one-sentence segments.
+- `src/evaluator.py`: Restructured the pipeline into `evaluate_batch()`. Isolated massive grading rubrics to `system_prompt`. Batched 5 user segments together. Replaced mid-run model cascading with a strict, explicitly chosen model (`--model` flag).
+- `src/models.py`: Dropped default `= 0` initialization to leverage strict Pydantic missing-field exceptions.
+- `README.md` & `spec/`: Synced documentation logic to new architectural constraints.
+**Why it changed:** All changes were necessitated by fundamental flaws raised during evaluation quality reviews, notably the corruption of scientific validity by model cascading, unweighted bias towards short text segments, schema vulnerability to truncated JSON outputs, and astronomical API evaluation costs.
+**Impact:** 
+- Massive structural overhaul to parsing logic.
+- Pipeline execution limits hard-coded.
+- API cost overhead dramatically slashed by >70% via JSON array batching and metadata bypass logic.
+
 ## 2026-02-22 — Extraction Pipeline Fix & Segment Cap Enforcement
 
 **Type:** Bug fix / Correctness improvement

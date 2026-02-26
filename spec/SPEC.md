@@ -26,12 +26,13 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 - **FR-003 (Deterministic Segmentation):** The system shall segment the PDF deterministically using header hierarchies, taking visual formatting vs structural headers into account.
 - **FR-004 (Segmentation Fallback):** If headers fail or segments are too large, the system shall safely chunk by characters/pages while respecting sentence boundaries.
 - **FR-005 (Evaluation):** The system shall query an LLM to evaluate the segment on 10 pedagogical dimensions.
-- **FR-006 (Model Cascading & Failure):** The system shall attempt evaluation via Anthropic Claude 4.6 Sonnet first, and fallback to Google Gemini 2.5 Flash upon failure. If both fail, the system shall crash, log the exact error, and halt processing.
-- **FR-007 (Output Formatting):** The system shall output the segment scores, reasoning, and the *exact text evaluated* in a strict, validated JSON format.
-- **FR-008 (Aggregation):** The system shall aggregate the individual segment assessments into a course-level quality score by mathematically averaging the section scores.
+- **FR-006 (Model Binding & Hard Failure):** The system shall bind to a single explicitly selected model (Claude 4.6 Sonnet or Gemini 2.5 Flash) for the complete duration of execution to ensure scientific validity. If the respective model fails, the system shall crash, log the exact error, and halt processing immediately. There is no mid-run model cascading.
+- **FR-007 (Output Formatting):** The system shall output the segment scores, reasoning, and the *exact text evaluated* in a strict, validated JSON format strictly enforcing Pydantic validations without default values.
+- **FR-008 (Aggregation):** The system shall aggregate the individual segment assessments into a course-level quality score by computing a length-weighted mathematical average of all explicitly instructional segments.
+- **FR-009 (Standalone Metadata Extraction):** The metadata ingress module shall be independently executable from the CLI (`python3 -m src.metadata`). It shall accept a PDF path, infer metadata natively or from a specified source, and output a structured JSON file to disk for human-in-the-loop review before evaluation.
 
 ### Non-Functional Requirements
-- **NFR-001 (Cost Efficiency):** The system shall cache evaluations and avoid re-evaluating unmodified segments.
+- **NFR-001 (Cost Efficiency):** The system shall employ batch operations to evaluate multiple segments at once, significantly compressing system prompt token usage. It shall also bypass evaluation of purely exercise modules and non-instructional frontmatter.
 - **NFR-002 (Configurability):** The application shall read evaluation criteria entirely from `config/rubrics.yaml`.
 - **NFR-003 (Reliability):** API calls must have timeout limits, retry mechanisms, and structured fallback handling.
 - **NFR-004 (Environment):** The application must run in Python 3.12+ and manage API keys via `.env` files.
@@ -52,10 +53,7 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 [Smart Segmenter] ─── (Header detection -> Sentence-aware fallback)
        │
        ▼
-[LLM Evaluator] ────► [Claude API]
-       │                   │ (On Fail)
-       │                   ▼
-       │               [Gemini API]
+[LLM Evaluator] ────► [LLM API]
        │                   │ (On Fail)
        │                   ▼
        │               [Crash & Log]

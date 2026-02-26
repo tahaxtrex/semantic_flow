@@ -39,6 +39,19 @@ def main():
     parser.add_argument("--output", type=str, required=True, help="Path to output directory for JSON evaluations")
     parser.add_argument("--config", type=str, default="config/rubrics.yaml", help="Path to rubrics YAML configuration")
     parser.add_argument("--limit", type=int, default=0, help="Limit the number of segments to evaluate per PDF for quick testing (0 = no limit)")
+    parser.add_argument(
+        '--model', 
+        type=str, 
+        choices=['claude', 'gemini'], 
+        default='claude', 
+        help='LLM model to use for evaluation (default: claude)'
+    )
+    parser.add_argument(
+        '--metadata',
+        type=str,
+        default=None,
+        help='Optional path or URL to metadata file (JSON, TXT, HTML, or PDF). Only extracted if provided.'
+    )
     
     args = parser.parse_args()
     
@@ -82,7 +95,7 @@ def main():
     from src.exporter import JSONExporter
 
     try:
-        evaluator = LLMEvaluator(config_path)
+        evaluator = LLMEvaluator(config_path, preferred_model=args.model)
     except Exception as e:
         logger.error(f"Failed to initialize evaluator: {e}")
         sys.exit(1)
@@ -96,7 +109,7 @@ def main():
             
             # 1. Ingest Metadata
             logger.info("Step 1/4: Metadata Extraction")
-            metadata_ingestor = MetadataIngestor(pdf_path)
+            metadata_ingestor = MetadataIngestor(course_pdf_path=pdf_path, metadata_source=args.metadata)
             metadata = metadata_ingestor.ingest()
             
             # 2. Segment PDF
@@ -111,14 +124,20 @@ def main():
             # 3. Evaluate Segments
             logger.info(f"Step 3/4: LLM Evaluation ({len(segments)} segments)")
             evaluated_segments = []
-            for i, seg in enumerate(segments, 1):
-                logger.info(f"  Evaluating segment {i}/{len(segments)}")
-                eval_seg = evaluator.evaluate(metadata, seg)
-                evaluated_segments.append(eval_seg)
+            
+            BATCH_SIZE = 5
+            total_batches = (len(segments) + BATCH_SIZE - 1) // BATCH_SIZE
+            for i in range(0, len(segments), BATCH_SIZE):
+                batch = segments[i:i+BATCH_SIZE]
+                batch_num = i // BATCH_SIZE + 1
+                logger.info(f"  Evaluating batch {batch_num}/{total_batches} ({len(batch)} segments)")
+                eval_batch = evaluator.evaluate_batch(metadata, batch)
+                evaluated_segments.extend(eval_batch)
                 
             # 4. Aggregate & Export
             logger.info("Step 4/4: Aggregation and Export")
-            course_eval = aggregator.aggregate(metadata, evaluated_segments)
+            model_string = "Claude-3-5-Sonnet" if args.model == 'claude' else "Gemini-2.5-Flash"
+            course_eval = aggregator.aggregate(metadata, evaluated_segments, model_used=model_string)
             output_file = exporter.export(course_eval)
             
             logger.info(f"Successfully evaluated {pdf_path.name} -> {output_file.name}")

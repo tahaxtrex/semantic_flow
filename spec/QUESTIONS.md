@@ -83,3 +83,27 @@
 
 **Question:** Should the final output JSON embed the exact text of every evaluated segment, or just the segment titles/IDs?
 **Answer:** The exact text of every segment evaluated must be embedded in the final JSON output.
+
+## Q-011: Addressing Critic Report Issues
+**Phase:** Implementation
+**Date:** 2026-02-25
+**Status:** Answered
+
+**Question:** How precisely are the major flaws identified in `CRITIC_REPORT.md` (e.g. model cascading, segmentation destruction, API costs) being addressed?
+**Answer:** The pipeline was hardened by specifically targeting those issues: Removing model cascading entirely (single explicit model binding), dropping defaults from Pydantic schemas (forcing missing-field errors), using length-based (`max_chars`) grouping over arbitrary page fractions, executing batched API calls to save >70% overhead, and bypassing LLM evaluation for explicitly non-instructional text (frontmatter, exercises) to protect the overall course average.
+
+## Q-012: Explicit Model Routing & Behaviors
+**Phase:** Implementation
+**Date:** 2026-02-25
+**Status:** Answered
+
+**Question:** How does the pipeline handle different models, and do Claude and Gemini use different operational approaches?
+**Answer:** The user explicitly selects a provider via `--model claude` or `--model gemini`. The application utilizes the distinct `Anthropic()` or `google.genai.Client()` SDKs depending on the flag, and automatically fails if the respective key is missing. However, to maintain evaluation parity and comparability, both models receive identically constructed `system_prompt` and JSON array `user_prompt` payloads.
+
+## Q-013: Standalone Metadata Extraction
+**Phase:** Implementation
+**Date:** 2026-02-25
+**Status:** Answered
+
+**Question:** Why does the metadata extraction module need to be independently executable?
+**Answer:** To provide a safer "human in the loop" workflow. Inferred metadata (title, audience, prerequisites) can contain errors or missing fields. By extracting metadata to a reviewable JSON file first, the user can manually audit and correct it before it influences LLM evaluation scores. This prevents hallucinations caused by incorrect course context being injected into the grading prompt.
