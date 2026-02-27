@@ -10,6 +10,11 @@ class CourseMetadata(BaseModel):
     description: Optional[str] = None
     prerequisites: List[str] = Field(default_factory=list)
     learning_outcomes: List[str] = Field(default_factory=list)
+    publisher: Optional[str] = None
+    year: Optional[str] = None
+    isbn: Optional[str] = None
+    level: Optional[str] = None
+    contributing_authors: List[str] = Field(default_factory=list)
 
 class Segment(BaseModel):
     segment_id: int

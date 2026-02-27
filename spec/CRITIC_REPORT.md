@@ -68,7 +68,6 @@ The SemanticFlow pedagogical evaluator contains fundamental flaws that currently
 ## Open Questions
 
 1. **Rubric Correlation Validation:** The "Research Objectives" explicitly state you want to identify systematic biases and evaluate correlation with human judgment. Are the actual human baselines scored at the global-course level or the local-segment level? If human experts score whole courses, segment-level LLM aggregation might not align structurally.
-2. **Temperature Setting:** Why is temperature set to `0.2` rather than `0.0`? For a deterministic evaluation pipeline, `0.0` ensures maximum reproducibility across runs.
 
 ## Summary Table
 

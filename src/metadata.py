@@ -4,21 +4,103 @@ import re
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import pdfplumber
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-# Audience / prerequisite / outcome marker patterns for Issue 7 extraction
+# ── Expanded patterns ─────────────────────────────────────────────────────────
+
+_TITLE_PATTERNS = [
+    # "Title: X" style
+    re.compile(r'^title\s*[:\-]\s*(.{5,120})', re.IGNORECASE | re.MULTILINE),
+    # "About <Title>" preface header
+    re.compile(r'About\s+([A-Z][^.\n]{10,100})\n', re.MULTILINE),
+]
+
+_AUTHOR_PATTERNS = [
+    # ALL-CAPS Senior Contributing Author line (OpenStax pattern — name comes after label)
+    re.compile(r'(?:senior\s+)?contributing\s+author[s]?\s*\n\s*(?:DR\.?|PROF\.?)?\s*([A-Z]{2,}(?:\s+[A-Z\.]{1,5})*(?:\s+[A-Z]{2,})+)', re.IGNORECASE),
+    # "by Author Name" on its own line (cover pages)
+    re.compile(r'\bby\s+([A-Z][a-z]+(?:\s+[A-Z]\.?\s*)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)', re.MULTILINE),
+    # "Author: Name" or "Written by: Name"
+    re.compile(r'(?:author|written by|prepared by)\s*[:\-]\s*([A-Z][^.\n]{5,80})', re.IGNORECASE),
+    # "Senior Contributing Author\nDr. Name Name" (title-case OpenStax pattern)
+    re.compile(r'(?:senior\s+)?contributing\s+author[s]?\s*\n\s*((?:Dr\.|Prof\.)?\s*[A-Z][^.\n]{5,60})', re.IGNORECASE),
+    # Direct "Dr. / Prof. Name" after authorship label on same line
+    re.compile(r'(?:author|by)[:\s]+(?:Dr\.|Prof\.)?\s*([A-Z][a-z]+(?:\s+[A-Z]\.?\s*[A-Z][a-z]+)+)', re.IGNORECASE),
+]
+
 _AUDIENCE_PATTERNS = [
-    re.compile(r'(?:intended for|suitable for|designed for|aimed at|for students|for\s+\w+\s+(?:students|developers|programmers))\s+([^.]{10,120})', re.IGNORECASE),
+    re.compile(r'(?:intended for|suitable for|designed for|aimed at|for students|'
+               r'for\s+\w+\s+(?:students|developers|programmers)|'
+               r'appeals to|written for|targeted(?:\s+at)?)\s+([^.]{10,150})', re.IGNORECASE),
+    # "This (book|text|course) is (an|a) [adjective] [noun] for [audience]"
+    re.compile(r'this\s+(?:book|text|textbook|course|resource)\s+is\s+(?:an?\s+)?'
+               r'[\w\s]{0,30}(?:for|to)\s+([^.]{10,120})', re.IGNORECASE),
+    # "introductory / undergraduate / graduate" level signals
+    re.compile(r'\b(introductory|undergraduate|graduate|advanced|beginner|intermediate)\s+'
+               r'(?:course|text|students?|level)[^.]{0,80}', re.IGNORECASE),
 ]
+
 _PREREQ_PATTERNS = [
-    re.compile(r'(?:prerequisite[s]?|prior knowledge|assumes|requires)\s*[:\-]?\s*([^.]{10,120})', re.IGNORECASE),
+    re.compile(r'(?:prerequisite[s]?|prior knowledge|prior experience|'
+               r'assumes|assumes knowledge|requires|background in|'
+               r'familiarity with|should (?:know|have|be familiar))\s*[:\-]?\s*([^.]{10,150})',
+               re.IGNORECASE),
+    # "Students who have completed X" 
+    re.compile(r'students?\s+who\s+(?:have|has)\s+(?:completed|taken|studied)\s+([^.]{5,100})',
+               re.IGNORECASE),
+    # "no prerequisites" — explicitly capture that too
+    re.compile(r'(no\s+(?:formal\s+)?prerequisite[s]?[^.]{0,60})', re.IGNORECASE),
 ]
+
 _OUTCOME_PATTERNS = [
-    re.compile(r'(?:you will learn|by the end|after completing|learning objective[s]?|upon completion|objectives?)\s*[:\-]?\s*([^.]{10,200})', re.IGNORECASE),
+    re.compile(r'(?:you will (?:learn|be able to)|by the end|after completing|'
+               r'learning objectives?|upon completion|objectives?\s*[:\-]|'
+               r'students?\s+will\s+(?:be able to|learn|understand|'
+               r'develop|gain|demonstrate))\s*[:\-]?\s*([^.]{10,250})',
+               re.IGNORECASE),
+]
+
+_DESCRIPTION_PATTERNS = [
+    # "About [Title]\n<description paragraph>"
+    re.compile(r'About\s+[\w\s]+?\n\s*([A-Z][^.]{30,400}\.)', re.DOTALL),
+    # "This (book|text|course) provides/covers/introduces..."
+    re.compile(
+        r'(?:this\s+(?:book|textbook|text|course|resource))\s+'
+        r'(?:provides?|covers?|introduces?|is\s+designed\s+to|aims?\s+to)\s+'
+        r'([^.]{30,350}\.)', re.IGNORECASE
+    ),
+    # First substantial sentence of a Preface / Introduction section
+    re.compile(r'(?:Preface|Introduction)\s*\n+([A-Z][^\n]{50,400})', re.DOTALL),
+    # Paragraph starting with the book's subject that looks like a blurb (min 60 chars, ends with period)
+    re.compile(r'([A-Z][A-Za-z\s,;]{60,350}(?:course|textbook|students|concepts|topics|skills)[^.]{0,100}\.)', re.DOTALL),
+]
+
+_SUBJECT_PATTERNS = [
+    # "course in [Subject]" / "course on [Subject]"
+    re.compile(r'course\s+(?:in|on)\s+([A-Z][^.,]{3,60})', re.IGNORECASE),
+    # "textbook for [Subject]"
+    re.compile(r'textbook\s+(?:for|in|on)\s+([A-Z][^.,]{3,60})', re.IGNORECASE),
+    # "Introduction to [Subject]" type titles
+    re.compile(r'^(?:introduction\s+to|foundations?\s+(?:of|in)|'
+               r'fundamentals?\s+of)\s+([A-Z][^.\n]{3,80})',
+               re.IGNORECASE | re.MULTILINE),
+]
+
+_ISBN_PATTERN = re.compile(
+    r'ISBN(?:-1[03])?\s*[:\-]?\s*((?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx])', re.IGNORECASE
+)
+_YEAR_PATTERN = re.compile(r'\b(20[0-2]\d|19[89]\d)\b')
+_PUBLISHER_PATTERNS = [
+    re.compile(r'[Pp]ublished\s+by\s+([^.\n]{5,80})'),
+    re.compile(r'[Cc]opyright\s+(?:\d{4}\s+)?([A-Z][^.\n]{5,60}(?:Press|Publishing|University|Inc\.|LLC|College))'),
+    re.compile(r'©\s*\d{4}\s+([A-Z][^.\n]{5,60}(?:Press|Publishing|University|Inc\.|LLC|College))'),
+    # Generic known educational publishers
+    re.compile(r'\b(OpenStax(?:\s+College)?)\b', re.IGNORECASE),
+    re.compile(r'^([A-Z][^.\n]{3,50}(?:Press|Publishing|Books|Education))', re.MULTILINE),
 ]
 
 
@@ -31,106 +113,513 @@ class CourseMetadata(BaseModel):
     description: str = "Unknown"
     prerequisites: List[str] = Field(default_factory=list)
     learning_outcomes: List[str] = Field(default_factory=list)
+    # New fields
+    publisher: str = "Unknown"
+    year: str = "Unknown"
+    isbn: str = "Unknown"
+    level: str = "Unknown"          # introductory / intermediate / advanced
+    contributing_authors: List[str] = Field(default_factory=list)
 
 
 class MetadataIngestor:
-    """Handles extraction of metadata from external files, URLs, or the PDF itself.
+    """
+    Improved metadata extractor.
     
-    Supports two modes:
-      1. Explicit source (--metadata flag): extracts from the given file/URL.
-      2. Auto-scan (default): checks for sibling .json/.txt/.html files matching
-         the PDF basename, then falls back to native PDF extraction.
-    
-    Can also be run standalone to produce a reviewable JSON file:
-        python3 -m src.metadata --pdf <path> --output <path.json>
+    Key improvements over v1:
+      1. Text-based title extraction from early pages using font-size heuristics
+      2. Author extraction from text (not just PDF properties)
+      3. Description extraction
+      4. Subject inference from title + text
+      5. Publisher / ISBN / year extraction
+      6. Multi-bullet learning outcome capture (not just first sentence)
+      7. "No prerequisites" handled explicitly
+      8. Level detection (introductory / advanced)
+      9. Optional LLM fallback for stubborn fields
     """
 
-    def __init__(self, course_pdf_path: Path, metadata_source: Optional[str] = None):
+    def __init__(
+        self,
+        course_pdf_path: Path,
+        metadata_source: Optional[str] = None,
+        llm_fallback: bool = False,         # set True to enable LLM fallback
+        llm_caller=None,                    # callable(prompt: str) -> str
+    ):
         self.metadata_source = str(metadata_source) if metadata_source else None
         self.course_pdf_path = Path(course_pdf_path)
         self.base_name = self.course_pdf_path.stem
         self.dir_path = self.course_pdf_path.parent
+        self.llm_fallback = llm_fallback
+        self.llm_caller = llm_caller
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Public entry point
+    # ─────────────────────────────────────────────────────────────────────────
 
     def ingest(self) -> CourseMetadata:
-        """Extract metadata from the explicit source if provided, otherwise auto-scan."""
-        # --- Explicit source path (when --metadata is provided) ---
         if self.metadata_source:
-            logger.info(f"Extracting metadata from explicit source: {self.metadata_source}")
+            return self._from_explicit_source()
+        return self._autoscan()
 
-            # URL
-            if self.metadata_source.startswith("http://") or self.metadata_source.startswith("https://"):
-                return self._parse_url()
+    # ─────────────────────────────────────────────────────────────────────────
+    # Source routing (unchanged logic, extended for new fields)
+    # ─────────────────────────────────────────────────────────────────────────
 
-            path = Path(self.metadata_source)
-            if not path.exists():
-                logger.warning(f"Metadata file {path} not found. Using default.")
-                return CourseMetadata(source=self.course_pdf_path.name)
+    def _from_explicit_source(self) -> CourseMetadata:
+        src = self.metadata_source
+        if src.startswith("http") or src.startswith("www."):
+            return self._parse_url()
+        path = Path(src)
+        if not path.exists():
+            logger.warning(f"Metadata file {path} not found.")
+            return CourseMetadata(source=self.course_pdf_path.name)
+        ext = path.suffix.lower()
+        dispatch = {'.json': self._parse_json, '.txt': self._parse_txt, '.html': self._parse_html}
+        return dispatch.get(ext, self._extract_metadata_from_pdf)(path)
 
-            ext = path.suffix.lower()
-            if ext == '.json':
-                return self._parse_json(path)
-            elif ext == '.txt':
-                return self._parse_txt(path)
-            elif ext == '.html':
-                return self._parse_html(path)
-            elif ext == '.pdf':
-                return self._extract_metadata_from_pdf(path)
-            else:
-                logger.warning(f"Unsupported metadata extension {ext}. Treating as PDF.")
-                return self._extract_metadata_from_pdf(path)
-
-        # --- Auto-scan fallback (original behavior when no --metadata flag) ---
-        json_path = self.dir_path / f"{self.base_name}.json"
-        if json_path.exists():
-            logger.info(f"Found external metadata JSON: {json_path}")
-            return self._parse_json(json_path)
-
-        txt_path = self.dir_path / f"{self.base_name}.txt"
-        if txt_path.exists():
-            logger.info(f"Found external metadata TXT: {txt_path}")
-            return self._parse_txt(txt_path)
-
-        html_path = self.dir_path / f"{self.base_name}.html"
-        if html_path.exists():
-            logger.info(f"Found external metadata HTML: {html_path}")
-            return self._parse_html(html_path)
-
-        logger.info(f"No external metadata found for '{self.base_name}'. Falling back to PDF extraction.")
+    def _autoscan(self) -> CourseMetadata:
+        for ext, parser in [('.json', self._parse_json), ('.txt', self._parse_txt), ('.html', self._parse_html)]:
+            p = self.dir_path / f"{self.base_name}{ext}"
+            if p.exists():
+                logger.info(f"Found external metadata: {p}")
+                return parser(p)
+        logger.info(f"No external metadata for '{self.base_name}'. Falling back to PDF.")
         return self._extract_metadata_from_pdf(self.course_pdf_path)
 
-    # ── Parsers ──────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # Core PDF extraction — heavily improved
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _extract_metadata_from_pdf(self, pdf_path: Path) -> CourseMetadata:
+        metadata = CourseMetadata(source=pdf_path.name)
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                doc_info = pdf.metadata or {}
+                self._apply_pdf_properties(metadata, doc_info, pdf_path)
+
+                # ── Gather text from cover + front matter ──────────────────
+                cover_text = self._extract_cover_text(pdf)       # pages 0-2
+                front_text = self._extract_front_matter(pdf)     # pages 0-14 or 5000 words
+                
+                # ── Title: try font-size heuristic on cover first ──────────
+                if metadata.title == "Unknown" or metadata.title == pdf_path.stem:
+                    title_by_font = self._extract_title_by_font(pdf)
+                    if title_by_font:
+                        metadata.title = title_by_font
+                        logger.info(f"Font-heuristic title: {metadata.title}")
+
+                # ── Fill every field from text ─────────────────────────────
+                self._infer_from_text(metadata, cover_text, front_text)
+
+                # ── LLM fallback for still-unknown fields ──────────────────
+                if self.llm_fallback and self.llm_caller:
+                    self._llm_fill(metadata, front_text[:3000])
+
+        except Exception as e:
+            logger.error(f"PDF extraction failed for {pdf_path}: {e}")
+
+        return metadata
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Text extraction helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _extract_cover_text(self, pdf) -> str:
+        """First 3 pages — most likely to have title/author. Falls back to word-extraction for image-heavy pages."""
+        parts = []
+        for page in pdf.pages[:3]:
+            text = page.extract_text() or ""
+            if not text.strip():
+                # Try word-based extraction as fallback for image-heavy PDFs
+                try:
+                    words = page.extract_words()
+                    text = " ".join(w['text'] for w in words)
+                except Exception:
+                    text = ""
+            parts.append(text)
+        return "\n".join(parts)
+
+    def _extract_front_matter(self, pdf, max_pages: int = 20, max_words: int = 6000) -> str:
+        """
+        Extended scan: up to 20 pages or 6000 words.
+        Increased from original 15/5000 to catch prefaces that start later.
+        """
+        parts = []
+        word_count = 0
+        for page in pdf.pages[:max_pages]:
+            H, W = float(page.height), float(page.width)
+            body = page.within_bbox((0, H * 0.08, W, H * 0.93))
+            words = body.extract_words()
+            page_text = " ".join(w['text'] for w in words)
+            parts.append(page_text)
+            word_count += len(page_text.split())
+            if word_count >= max_words:
+                break
+        return "\n".join(parts)
+
+    def _extract_title_by_font(self, pdf) -> Optional[str]:
+        """
+        Find the largest-font text block on the first 3 pages.
+        Works for OpenStax, Pearson, Springer, O'Reilly, etc.
+        Returns None if no reliable candidate found.
+        """
+        best_size = 0
+        best_text = None
+        
+        # Scan first 3 pages to find the maximum font size used for readable text
+        for page in pdf.pages[:3]:
+            try:
+                words = page.extract_words(extra_attrs=["size"])
+            except Exception:
+                continue
+            for w in words:
+                size = float(w.get("size", 0))
+                text = w.get("text", "").strip()
+                # Loosen the length constraint to catch large short words like "A", "An" if they are the ONLY large words,
+                # though usually titles are longer.
+                if size > best_size and len(text) >= 2 and text.isascii():
+                    best_size = size
+                    best_text = text
+
+        if not best_text or best_size < 14:   # too small to be a title
+            return None
+
+        # Collect all words at ≥90% of the largest font size (multi-word title)
+        threshold = best_size * 0.90
+        title_words = []
+        for page in pdf.pages[:3]:
+            try:
+                words = page.extract_words(extra_attrs=["size"])
+            except Exception:
+                continue
+            for w in words:
+                # remove the `len(text)>2` restriction here so we can grab words like "of", "in" in the title
+                if float(w.get("size", 0)) >= threshold:
+                    title_words.append(w["text"])
+
+        if title_words:
+            candidate = " ".join(title_words)
+            # Sanity: should look like a title, not a fragment
+            if 2 <= len(candidate.split()) <= 20:
+                return candidate.title() if candidate.isupper() else candidate
+        return best_text
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Apply PDF document properties
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _apply_pdf_properties(self, metadata: CourseMetadata, doc_info: dict, pdf_path: Path):
+        def _get(key): 
+            v = doc_info.get(key, "")
+            return v.strip() if isinstance(v, str) and v.strip() else None
+
+        if _get('Title'):
+            # Only set title if it's not the exact same as the stem or if it's an obviously good title
+            title = _get('Title')
+            # Some PDFs have metadata title matching the filename stem without caps, ignore those to let heuristic work later
+            if title.lower() != pdf_path.stem.lower():
+                metadata.title = title
+
+        # Leave author as Unknown if not nicely formatted in PDF properties
+        if _get('Author'):     
+            metadata.author = _get('Author')
+        if _get('Subject'):    
+            metadata.subject = _get('Subject')
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pattern-based inference  (the heart of the improvement)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _infer_from_text(
+        self,
+        metadata: CourseMetadata,
+        cover_text: str,
+        full_text: str,
+    ) -> None:
+        combined = cover_text + "\n\n" + full_text
+
+        # ── Title (text fallback after font heuristic) ─────────────────────
+        if metadata.title in ("Unknown", "", self.course_pdf_path.stem.replace('_',' ').replace('-',' ').title()):
+            for pat in _TITLE_PATTERNS:
+                m = pat.search(combined)
+                if m:
+                    metadata.title = m.group(1).strip()
+                    break
+
+        # ── Author ────────────────────────────────────────────────────────
+        if metadata.author == "Unknown":
+            for pat in _AUTHOR_PATTERNS:
+                m = pat.search(cover_text)   # prefer cover page
+                if m:
+                    raw_author = m.group(1).strip().rstrip('.,')
+                    # Title-case all-caps names (e.g. "DR. MAHESH S. RAISINGHANI" → "Dr. Mahesh S. Raisinghani")
+                    if raw_author == raw_author.upper():
+                        raw_author = raw_author.title()
+                    metadata.author = raw_author
+                    logger.info(f"Inferred author: {metadata.author}")
+                    break
+            if metadata.author == "Unknown":
+                for pat in _AUTHOR_PATTERNS:
+                    m = pat.search(full_text)
+                    if m:
+                        raw_author = m.group(1).strip().rstrip('.,')
+                        if raw_author == raw_author.upper():
+                            raw_author = raw_author.title()
+                        metadata.author = raw_author
+                        break
+
+        # ── Contributing authors (collect all, deduplicate) ────────────────
+        if not metadata.contributing_authors:
+            found = []
+            contrib_pat = re.compile(
+                r'Contributing\s+Authors?\s*\n((?:[^\n]+\n){1,20})', re.IGNORECASE
+            )
+            m = contrib_pat.search(full_text)
+            if m:
+                block = m.group(1)
+                # Each line: "First Last, Institution"
+                for line in block.splitlines():
+                    line = line.strip()
+                    name_m = re.match(r'^([A-Z][a-z]+ [A-Z][^,\n]{1,40})', line)
+                    if name_m:
+                        found.append(name_m.group(1).strip())
+            if found:
+                metadata.contributing_authors = found[:15]  # cap at 15
+
+        # ── Subject ───────────────────────────────────────────────────────
+        if metadata.subject == "Unknown":
+            # Derive from title first
+            title_subject = self._subject_from_title(metadata.title)
+            if title_subject:
+                metadata.subject = title_subject
+            else:
+                for pat in _SUBJECT_PATTERNS:
+                    m = pat.search(combined)
+                    if m:
+                        metadata.subject = m.group(1).strip().rstrip('.,')
+                        break
+
+        # ── Description ───────────────────────────────────────────────────
+        if metadata.description == "Unknown":
+            for pat in _DESCRIPTION_PATTERNS:
+                m = pat.search(combined)   # search cover + full text
+                if m:
+                    raw = m.group(1).strip()
+                    # Skip suspiciously short or all-boilerplate fragments
+                    if len(raw) < 20 or raw.lower().startswith(('access for free', 'if you')):
+                        continue
+                    metadata.description = raw[:400] if len(raw) > 400 else raw
+                    logger.info("Inferred description.")
+                    break
+
+        # ── Level (introductory / intermediate / advanced) ─────────────────
+        if metadata.level == "Unknown":
+            level_pat = re.compile(
+                r'\b(introductory|introduction|beginner|foundational?|'
+                r'intermediate|advanced|graduate-level|undergraduate)\b', re.IGNORECASE
+            )
+            m = level_pat.search(combined)
+            if m:
+                raw = m.group(1).lower()
+                if raw in ('introductory','introduction','beginner','foundational','foundations'):
+                    metadata.level = "Introductory"
+                elif raw in ('intermediate',):
+                    metadata.level = "Intermediate"
+                elif raw in ('advanced','graduate-level'):
+                    metadata.level = "Advanced"
+                else:
+                    metadata.level = raw.capitalize()
+
+        # ── Target audience ─────────────────────────────────────────────────
+        if metadata.target_audience == "Unknown":
+            for pat in _AUDIENCE_PATTERNS:
+                m = pat.search(combined)
+                if m:
+                    metadata.target_audience = m.group(0).strip().rstrip('.,')[:200]
+                    break
+            # Heuristic: infer from level if regex found nothing
+            if metadata.target_audience == "Unknown" and metadata.level != "Unknown":
+                level_audience_map = {
+                    "Introductory": "Introductory college students or beginners with no prior background",
+                    "Intermediate": "Students with foundational knowledge seeking to deepen understanding",
+                    "Advanced": "Advanced students or practitioners with prior knowledge",
+                    "Undergraduate": "Undergraduate students",
+                    "Graduate": "Graduate-level students",
+                }
+                if metadata.level in level_audience_map:
+                    metadata.target_audience = level_audience_map[metadata.level]
+                    logger.info(f"Heuristic target_audience from level: {metadata.target_audience}")
+
+        # ── Prerequisites ─────────────────────────────────────────────────
+        if not metadata.prerequisites:
+            found = []
+            for pat in _PREREQ_PATTERNS:
+                for m in pat.finditer(full_text):
+                    item = m.group(1).strip().rstrip('.,')
+                    if item and item not in found:
+                        found.append(item)
+            if found:
+                metadata.prerequisites = found
+            else:
+                # Many introductory books have NO prerequisites — record that
+                if metadata.level == "Introductory":
+                    metadata.prerequisites = ["No formal prerequisites required"]
+
+        # ── Learning outcomes — capture full bullet lists ──────────────────
+        if not metadata.learning_outcomes:
+            metadata.learning_outcomes = self._extract_learning_outcomes(full_text)
+
+        # ── Publisher ─────────────────────────────────────────────────────
+        if metadata.publisher == "Unknown":
+            for pat in _PUBLISHER_PATTERNS:
+                m = pat.search(combined)
+                if m:
+                    metadata.publisher = m.group(1).strip().rstrip('.,')[:100]
+                    break
+
+        # ── ISBN ──────────────────────────────────────────────────────────
+        if metadata.isbn == "Unknown":
+            m = _ISBN_PATTERN.search(combined)
+            if m:
+                metadata.isbn = m.group(1).strip()
+
+        # ── Year ──────────────────────────────────────────────────────────
+        if metadata.year == "Unknown":
+            years = _YEAR_PATTERN.findall(combined[:2000])  # near top
+            if years:
+                # Pick the most recent plausible publication year
+                metadata.year = max(years)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Learning outcome multi-bullet extractor
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _extract_learning_outcomes(self, text: str, max_outcomes: int = 20) -> List[str]:
+        """
+        Captures all bullet points following a 'Learning Objectives' / 
+        'By the end of this section' header across the scanned pages.
+        """
+        outcomes = []
+        # Find every "Learning Objectives" block
+        section_pat = re.compile(
+            r'(?:Learning\s+Objectives?|By\s+the\s+end\s+of\s+this\s+(?:section|chapter)'
+            r'|Upon\s+completion|After\s+completing\s+this)',
+            re.IGNORECASE
+        )
+        bullet_pat = re.compile(
+            r'(?:^|\n)\s*[•\-\*·]\s*(.+?)(?=\n\s*[•\-\*·]|\n\n|\Z)',
+            re.DOTALL
+        )
+        # Also "• verb object" style without explicit header
+        verb_pat = re.compile(
+            r'(?:^|\n)\s*[•\-\*·]\s*(?:Define|Describe|Explain|Identify|Discuss|'
+            r'Apply|Analyze|Evaluate|Compare|Demonstrate|Understand)\s+(.{10,200})',
+            re.IGNORECASE | re.MULTILINE
+        )
+
+        for m_section in section_pat.finditer(text):
+            start = m_section.end()
+            chunk = text[start:start + 800]  # scan 800 chars after header
+            for m_bullet in bullet_pat.finditer(chunk):
+                item = m_bullet.group(1).strip().replace('\n', ' ')
+                if 5 < len(item) < 250 and item not in outcomes:
+                    outcomes.append(item)
+                if len(outcomes) >= max_outcomes:
+                    return outcomes
+
+        # Fallback: action-verb bullet scan if no header found
+        if not outcomes:
+            for m in verb_pat.finditer(text):
+                item = m.group(0).strip().lstrip('•-*· ').replace('\n', ' ')
+                if item not in outcomes:
+                    outcomes.append(item)
+                if len(outcomes) >= max_outcomes:
+                    break
+
+        return outcomes
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Subject from title
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _subject_from_title(self, title: str) -> Optional[str]:
+        """
+        'Foundations of Information Systems' → 'Information Systems'
+        'Introduction to Machine Learning' → 'Machine Learning'
+        """
+        m = re.match(
+            r'(?:introduction\s+to|foundations?\s+(?:of|in)|'
+            r'fundamentals?\s+of|principles\s+of|essentials?\s+of|'
+            r'beginning|learning)\s+(.+)',
+            title, re.IGNORECASE
+        )
+        return m.group(1).strip() if m else None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Optional LLM fallback
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _llm_fill(self, metadata: CourseMetadata, sample_text: str) -> None:
+        """
+        Call a lightweight LLM to fill any still-unknown fields.
+        `self.llm_caller` should be a callable(prompt: str) -> str.
+        Uses structured JSON output request for reliability.
+        """
+        unknown_fields = [
+            f for f in ('title','author','subject','target_audience',
+                        'description','level')
+            if getattr(metadata, f) == "Unknown"
+        ]
+        if not unknown_fields:
+            return
+
+        prompt = (
+            f"You are a metadata extractor. Given this excerpt from a course book, "
+            f"extract the following fields as JSON with no extra text:\n"
+            f"{unknown_fields}\n\n"
+            f"Excerpt:\n{sample_text}\n\n"
+            f"Return only valid JSON, e.g.: {{\"title\": \"...\", \"author\": \"...\"}}"
+        )
+        try:
+            response = self.llm_caller(prompt)
+            # Strip markdown code fences if present
+            clean = re.sub(r'```(?:json)?|```', '', response).strip()
+            data = json.loads(clean)
+            for field in unknown_fields:
+                if field in data and data[field] and data[field] != "Unknown":
+                    setattr(metadata, field, data[field])
+                    logger.info(f"LLM filled '{field}': {data[field]}")
+        except Exception as e:
+            logger.warning(f"LLM fallback failed: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Parsers (unchanged from v1)
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _parse_url(self) -> CourseMetadata:
         try:
             req = urllib.request.Request(self.metadata_source, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                content = response.read().decode('utf-8', errors='ignore')
-
-                if self.metadata_source.endswith('.json') or content.strip().startswith('{'):
+            with urllib.request.urlopen(req, timeout=10) as r:
+                content = r.read().decode('utf-8', errors='ignore')
+                if content.strip().startswith('{'):
                     try:
-                        data = json.loads(content)
-                        valid_fields = CourseMetadata.model_fields.keys()
-                        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
-                        return CourseMetadata(**filtered_data)
+                        return CourseMetadata(**{k: v for k, v in json.loads(content).items()
+                                                  if k in CourseMetadata.model_fields})
                     except Exception:
                         pass
-
-                metadata = CourseMetadata(source=self.metadata_source)
-                self._infer_from_text(metadata, content)
-                return metadata
+                meta = CourseMetadata(source=self.metadata_source)
+                self._infer_from_text(meta, content[:500], content)
+                return meta
         except Exception as e:
-            logger.error(f"Failed to fetch metadata from URL {self.metadata_source}: {e}")
+            logger.error(f"URL fetch failed: {e}")
             return CourseMetadata(source=self.course_pdf_path.name)
 
     def _parse_json(self, path: Path) -> CourseMetadata:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            valid_fields = CourseMetadata.model_fields.keys()
-            filtered_data = {k: v for k, v in data.items() if k in valid_fields}
-            return CourseMetadata(**filtered_data)
+            return CourseMetadata(**{k: v for k, v in data.items() if k in CourseMetadata.model_fields})
         except Exception as e:
-            logger.error(f"Failed to parse JSON {path}: {e}")
+            logger.error(f"JSON parse failed: {e}")
             return CourseMetadata(source=self.course_pdf_path.name)
 
     def _parse_txt(self, path: Path) -> CourseMetadata:
@@ -140,123 +629,72 @@ class MetadataIngestor:
                 for line in f:
                     if ':' in line:
                         key, val = line.split(':', 1)
-                        clean_key = key.strip().lower().replace(' ', '_')
-                        if clean_key in ['prerequisites', 'learning_outcomes']:
-                            data[clean_key] = [v.strip() for v in val.split(',')]
+                        k = key.strip().lower().replace(' ', '_')
+                        if k in ('prerequisites', 'learning_outcomes', 'contributing_authors'):
+                            data[k] = [v.strip() for v in val.split(',')]
                         else:
-                            data[clean_key] = val.strip()
-            valid_fields = CourseMetadata.model_fields.keys()
-            filtered_data = {k: v for k, v in data.items() if k in valid_fields}
-            return CourseMetadata(**filtered_data)
+                            data[k] = val.strip()
+            return CourseMetadata(**{k: v for k, v in data.items() if k in CourseMetadata.model_fields})
         except Exception as e:
-            logger.error(f"Failed to parse TXT {path}: {e}")
+            logger.error(f"TXT parse failed: {e}")
             return CourseMetadata(source=self.course_pdf_path.name)
 
     def _parse_html(self, path: Path) -> CourseMetadata:
-        logger.warning(f"HTML metadata extraction is basic. Using default for {path.name}.")
+        logger.warning(f"HTML parsing not implemented for {path.name}.")
         return CourseMetadata(source=self.course_pdf_path.name)
 
-    def _extract_metadata_from_pdf(self, pdf_path: Path) -> CourseMetadata:
-        """Extract metadata from PDF properties and infer audience/prerequisites/outcomes
-        from the first 15 body pages or 5000 words (critic.md Issue 7)."""
-        metadata = CourseMetadata(source=pdf_path.name)
-        try:
-            with pdfplumber.open(pdf_path) as pdf:
-                doc_info = pdf.metadata or {}
-
-                title = doc_info.get('Title')
-                if title and isinstance(title, str) and title.strip():
-                    metadata.title = title
-                else:
-                    metadata.title = pdf_path.stem.replace('_', ' ').replace('-', ' ').title()
-
-                author = doc_info.get('Author')
-                if author and isinstance(author, str) and author.strip():
-                    metadata.author = author
-
-                subject = doc_info.get('Subject')
-                if subject and isinstance(subject, str) and subject.strip():
-                    metadata.subject = subject
-
-                # Text-based inference from first 15 pages or 5000 words
-                intro_text = ""
-                scan_pages = min(15, len(pdf.pages))
-                word_count = 0
-                for page in pdf.pages[:scan_pages]:
-                    H = float(page.height)
-                    W = float(page.width)
-                    body = page.within_bbox((0, H * 0.10, W, H * 0.92))
-                    words = body.extract_words()
-                    page_text = " ".join(w['text'] for w in words)
-                    intro_text += page_text + "\n"
-
-                    word_count += len(page_text.split())
-                    if word_count > 5000:
-                        break
-
-                if intro_text.strip():
-                    self._infer_from_text(metadata, intro_text)
-
-        except Exception as e:
-            logger.error(f"Failed to extract metadata from PDF {pdf_path}: {e}")
-
-        return metadata
-
-    def _infer_from_text(self, metadata: CourseMetadata, text: str) -> None:
-        """Apply pattern matching against intro text to populate missing metadata fields."""
-        # Target audience
-        if metadata.target_audience == "Unknown":
-            for pat in _AUDIENCE_PATTERNS:
-                m = pat.search(text)
-                if m:
-                    metadata.target_audience = m.group(1).strip().rstrip('.').strip()
-                    logger.info(f"Inferred target_audience: {metadata.target_audience}")
-                    break
-
-        # Prerequisites
-        if not metadata.prerequisites:
-            found = []
-            for pat in _PREREQ_PATTERNS:
-                for m in pat.finditer(text):
-                    item = m.group(1).strip().rstrip('.').strip()
-                    if item and item not in found:
-                        found.append(item)
-            if found:
-                metadata.prerequisites = found
-                logger.info(f"Inferred prerequisites: {found}")
-
-        # Learning outcomes
-        if not metadata.learning_outcomes:
-            found = []
-            for pat in _OUTCOME_PATTERNS:
-                for m in pat.finditer(text):
-                    item = m.group(1).strip().rstrip('.').strip()
-                    if item and item not in found:
-                        found.append(item)
-            if found:
-                metadata.learning_outcomes = found
-                logger.info(f"Inferred learning_outcomes: {found}")
-
+        # ── Fix _parse_url to match new signature (already in the improved script,
+#    just confirming it's correct) ─────────────────────────────────────────
+# self._infer_from_text(meta, content[:500], content)  ✓
 
 # ── Standalone CLI ───────────────────────────────────────────────────────
-# Usage:
-#   python3 -m src.metadata --pdf data/courses/Dsa.pdf --output data/courses/Dsa_metadata.json
+# Preserved exactly as original, with two optional new flags:
+#
+# Original usage (still works identically):
+#   python3 -m src.metadata --pdf data/courses/Dsa.pdf --output out.json
 #   python3 -m src.metadata --pdf data/courses/Dsa.pdf --metadata https://example.com/meta.json --output out.json
+#
+# New optional flags:
+#   --llm-fallback          enable LLM gap-filling (requires --llm-model)
+#   --llm-model             model string passed to your existing LLM caller
 
 if __name__ == "__main__":
     import argparse
     import sys
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
 
     parser = argparse.ArgumentParser(
-        description="Standalone Metadata Extractor — extract course metadata to a reviewable JSON file."
+        description=(
+            "Standalone Metadata Extractor — extract course metadata "
+            "to a reviewable JSON file."
+        )
     )
-    parser.add_argument("--pdf", type=str, required=True, help="Path to the course PDF.")
-    parser.add_argument("--metadata", type=str, default=None,
-                        help="Optional explicit path or URL to an external metadata source.")
-    parser.add_argument("--output", type=str, required=True,
-                        help="Path to save the extracted JSON metadata for review.")
+    # ── Original flags (unchanged) ────────────────────────────────────────
+    parser.add_argument(
+        "--pdf", type=str, required=True,
+        help="Path to the course PDF."
+    )
+    parser.add_argument(
+        "--metadata", type=str, default=None,
+        help="Optional explicit path or URL to an external metadata source."
+    )
+    parser.add_argument(
+        "--output", type=str, required=True,
+        help="Path to save the extracted JSON metadata for review."
+    )
+    # ── New optional flags (don't affect original usage) ──────────────────
+    parser.add_argument(
+        "--llm-fallback", action="store_true", default=False,
+        help="Enable LLM gap-filling for fields that regex could not extract."
+    )
+    parser.add_argument(
+        "--llm-model", type=str, default=None,
+        help="Model identifier to use for LLM fallback (e.g. 'claude-haiku-4-5-20251001')."
+    )
 
     args = parser.parse_args()
 
@@ -265,15 +703,76 @@ if __name__ == "__main__":
         logger.error(f"PDF file not found: {pdf_path}")
         sys.exit(1)
 
-    ingestor = MetadataIngestor(course_pdf_path=pdf_path, metadata_source=args.metadata)
+    # ── Build optional LLM caller if requested ────────────────────────────
+    llm_caller = None
+    if args.llm_fallback:
+        if not args.llm_model:
+            logger.warning(
+                "--llm-fallback set but no --llm-model given. "
+                "Fallback will be skipped."
+            )
+        else:
+            # Thin wrapper — swap out for your project's existing LLM call
+            # pattern so it stays consistent with the rest of your pipeline.
+            try:
+                import anthropic  # or whatever client your project already uses
+                _client = anthropic.Anthropic()
+
+                def llm_caller(prompt: str) -> str:
+                    msg = _client.messages.create(
+                        model=args.llm_model,
+                        max_tokens=512,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    return msg.content[0].text
+
+            except ImportError:
+                logger.warning(
+                    "Could not import anthropic client. "
+                    "Install it or replace the llm_caller with your project's client."
+                )
+
+    # ── Run extraction (same flow as original) ────────────────────────────
+    ingestor = MetadataIngestor(
+        course_pdf_path=pdf_path,
+        metadata_source=args.metadata,
+        llm_fallback=args.llm_fallback,
+        llm_caller=llm_caller,
+    )
     metadata = ingestor.ingest()
 
+    # ── Save output (identical to original) ──────────────────────────────
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(metadata.model_dump_json(indent=2))
 
+    # ── Console output ────────────────────────────────────────────────────
     print(f"\n✅ Metadata saved to: {output_path}")
     print("   Review and edit the JSON, then pass it to the evaluator:")
-    print(f"   python3 -m src.main --input <courses_dir> --output <output_dir> --metadata {output_path}")
+    print(
+        f"   python3 -m src.main --input <courses_dir> "
+        f"--output <output_dir> --metadata {output_path}"
+    )
+
+    print("\n── Extraction summary ──────────────────────────────────")
+    fields = [
+        ("title",            metadata.title),
+        ("author",           metadata.author),
+        ("subject",          metadata.subject),
+        ("level",            metadata.level),
+        ("year",             metadata.year),
+        ("isbn",             metadata.isbn),
+        ("publisher",        metadata.publisher),
+        ("target_audience",  metadata.target_audience),
+        ("description",      (metadata.description[:60] + "…")
+                              if len(metadata.description) > 60
+                              else metadata.description),
+        ("prerequisites",    f"{len(metadata.prerequisites)} item(s)"),
+        ("learning_outcomes",f"{len(metadata.learning_outcomes)} item(s)"),
+    ]
+    for label, value in fields:
+        status = "⚠ " if value in ("Unknown", "0 item(s)") else "✓ "
+        print(f"   {status}{label:<20} {value}")
+    print("────────────────────────────────────────────────────────")
