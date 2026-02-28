@@ -1,6 +1,8 @@
 import json
 import logging
+import os
 import re
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -121,35 +123,215 @@ class CourseMetadata(BaseModel):
     contributing_authors: List[str] = Field(default_factory=list)
 
 
+# ── AI Metadata Extractor ─────────────────────────────────────────────────────
+
+_AI_SYSTEM_PROMPT = """
+You are an expert librarian and course cataloguer. You will be given raw text extracted
+from the first pages of a course textbook/PDF. Extract metadata as a single JSON object.
+
+Rules:
+- Return ONLY valid JSON, no markdown fences, no commentary.
+- If a field cannot be determined from the text, use null.
+- prerequisites and learning_outcomes must be JSON arrays of strings (can be empty).
+- contributing_authors must be a JSON array of strings (can be empty).
+- level must be one of: "Introductory", "Intermediate", "Advanced", or null.
+- year should be a 4-digit string (e.g. "2024") or null.
+- isbn should be the raw ISBN string or null.
+
+Required JSON schema:
+{
+  "title": string | null,
+  "author": string | null,
+  "target_audience": string | null,
+  "subject": string | null,
+  "description": string | null,
+  "prerequisites": [string],
+  "learning_outcomes": [string],
+  "publisher": string | null,
+  "year": string | null,
+  "isbn": string | null,
+  "level": string | null,
+  "contributing_authors": [string]
+}
+""".strip()
+
+
+class AIMetadataExtractor:
+    """
+    Extracts CourseMetadata fields using an LLM.
+    Tries Claude first; falls back to Gemini if Claude fails.
+    """
+
+    CLAUDE_MODEL  = "claude-sonnet-4-6"
+    GEMINI_MODEL  = "gemini-2.5-flash"
+    MAX_RETRIES   = 2
+    RETRY_BACKOFF = 3  # seconds, doubles each retry
+
+    def __init__(
+        self,
+        anthropic_key: Optional[str] = None,
+        gemini_key: Optional[str] = None,
+        preferred_model: str = "claude",
+    ):
+        self.preferred_model = preferred_model.lower()
+        self._anthropic_client = None
+        self._gemini_client    = None
+
+        if anthropic_key:
+            try:
+                from anthropic import Anthropic
+                self._anthropic_client = Anthropic(api_key=anthropic_key)
+            except ImportError:
+                logger.warning("anthropic package not installed — Claude unavailable.")
+
+        if gemini_key:
+            try:
+                from google import genai
+                self._gemini_client = genai.Client(api_key=gemini_key)
+            except ImportError:
+                logger.warning("google-genai package not installed — Gemini unavailable.")
+
+    # ── Public entry point ────────────────────────────────────────────────
+
+    def extract(self, text: str, source: str) -> "CourseMetadata":
+        """
+        Given raw front-matter text and a source label, return a CourseMetadata
+        populated by the LLM.  Fields the LLM cannot determine are left as
+        'Unknown' (scalars) or [] (lists).
+        """
+        user_prompt = (
+            f"Extract metadata from the following course text. Source: {source}\n\n"
+            f"{text[:12000]}"  # stay well within context limits
+        )
+
+        response_text = None
+
+        if self.preferred_model == "claude":
+            response_text = self._try_claude(user_prompt)
+            if response_text is None:
+                logger.warning("Claude failed — falling back to Gemini.")
+                response_text = self._try_gemini(user_prompt)
+        else:
+            response_text = self._try_gemini(user_prompt)
+            if response_text is None:
+                logger.warning("Gemini failed — falling back to Claude.")
+                response_text = self._try_claude(user_prompt)
+
+        if response_text is None:
+            logger.error("All AI providers failed for metadata extraction.")
+            return CourseMetadata(source=source)
+
+        return self._parse_response(response_text, source)
+
+    # ── LLM callers ───────────────────────────────────────────────────────
+
+    def _try_claude(self, user_prompt: str) -> Optional[str]:
+        if self._anthropic_client is None:
+            return None
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                logger.info(f"AI metadata: calling Claude (attempt {attempt}).")
+                resp = self._anthropic_client.messages.create(
+                    model=self.CLAUDE_MODEL,
+                    max_tokens=1024,
+                    temperature=0.0,
+                    system=_AI_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                return resp.content[0].text
+            except Exception as e:
+                wait = self.RETRY_BACKOFF * (2 ** (attempt - 1))
+                logger.warning(f"Claude attempt {attempt} failed: {e}. Waiting {wait}s.")
+                if attempt < self.MAX_RETRIES:
+                    time.sleep(wait)
+        return None
+
+    def _try_gemini(self, user_prompt: str) -> Optional[str]:
+        if self._gemini_client is None:
+            return None
+        try:
+            from google.genai import types as genai_types
+        except ImportError:
+            return None
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                logger.info(f"AI metadata: calling Gemini (attempt {attempt}).")
+                resp = self._gemini_client.models.generate_content(
+                    model=self.GEMINI_MODEL,
+                    contents=_AI_SYSTEM_PROMPT + "\n\n" + user_prompt,
+                    config=genai_types.GenerateContentConfig(
+                        temperature=0.0,
+                        response_mime_type="application/json",
+                    ),
+                )
+                return resp.text
+            except Exception as e:
+                wait = self.RETRY_BACKOFF * (2 ** (attempt - 1))
+                logger.warning(f"Gemini attempt {attempt} failed: {e}. Waiting {wait}s.")
+                if attempt < self.MAX_RETRIES:
+                    time.sleep(wait)
+        return None
+
+    # ── Response parser ───────────────────────────────────────────────────
+
+    def _parse_response(self, text: str, source: str) -> "CourseMetadata":
+        # Strip markdown fences if the model included them
+        clean = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("`")
+        try:
+            data = json.loads(clean)
+        except json.JSONDecodeError as e:
+            logger.error(f"AI response was not valid JSON: {e}\nRaw: {text[:300]}")
+            return CourseMetadata(source=source)
+
+        # Coerce null → our sentinel defaults so Pydantic is happy
+        for scalar_field in ("title", "author", "target_audience", "subject",
+                             "description", "publisher", "year", "isbn", "level"):
+            if data.get(scalar_field) is None:
+                data[scalar_field] = "Unknown"
+        for list_field in ("prerequisites", "learning_outcomes", "contributing_authors"):
+            if not isinstance(data.get(list_field), list):
+                data[list_field] = []
+
+        data["source"] = source
+
+        try:
+            return CourseMetadata(**{k: v for k, v in data.items()
+                                     if k in CourseMetadata.model_fields})
+        except Exception as e:
+            logger.error(f"CourseMetadata validation failed: {e}")
+            return CourseMetadata(source=source)
+
+
 class MetadataIngestor:
     """
-    Improved metadata extractor.
-    
-    Key improvements over v1:
-      1. Text-based title extraction from early pages using font-size heuristics
-      2. Author extraction from text (not just PDF properties)
-      3. Description extraction
-      4. Subject inference from title + text
-      5. Publisher / ISBN / year extraction
-      6. Multi-bullet learning outcome capture (not just first sentence)
-      7. "No prerequisites" handled explicitly
-      8. Level detection (introductory / advanced)
-      9. Optional LLM fallback for stubborn fields
+    Metadata extractor with deterministic regex pre-pass + optional AI fill.
+
+    Extraction pipeline:
+      1. PDF document properties (title, author, subject)
+      2. Font-size heuristic title detection
+      3. Pattern/regex inference from front-matter text
+      4. (Optional) AI pass (Claude → Gemini fallback) fills remaining Unknown fields
     """
 
     def __init__(
         self,
         course_pdf_path: Path,
         metadata_source: Optional[str] = None,
-        llm_fallback: bool = False,         # set True to enable LLM fallback
-        llm_caller=None,                    # callable(prompt: str) -> str
+        use_ai: bool = False,
+        preferred_model: str = "claude",
+        # Legacy parameters kept for backwards compatibility
+        llm_fallback: bool = False,
+        llm_caller=None,
     ):
-        self.metadata_source = str(metadata_source) if metadata_source else None
-        self.course_pdf_path = Path(course_pdf_path)
-        self.base_name = self.course_pdf_path.stem
-        self.dir_path = self.course_pdf_path.parent
-        self.llm_fallback = llm_fallback
-        self.llm_caller = llm_caller
+        self.metadata_source  = str(metadata_source) if metadata_source else None
+        self.course_pdf_path  = Path(course_pdf_path)
+        self.base_name        = self.course_pdf_path.stem
+        self.dir_path         = self.course_pdf_path.parent
+        self.use_ai           = use_ai
+        self.preferred_model  = preferred_model
+        # Legacy LLM fallback (kept for backwards compat, lower priority than use_ai)
+        self.llm_fallback     = llm_fallback
+        self.llm_caller       = llm_caller
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public entry point
@@ -191,6 +373,7 @@ class MetadataIngestor:
 
     def _extract_metadata_from_pdf(self, pdf_path: Path) -> CourseMetadata:
         metadata = CourseMetadata(source=pdf_path.name)
+        front_text = ""
         try:
             with pdfplumber.open(pdf_path) as pdf:
                 doc_info = pdf.metadata or {}
@@ -198,8 +381,8 @@ class MetadataIngestor:
 
                 # ── Gather text from cover + front matter ──────────────────
                 cover_text = self._extract_cover_text(pdf)       # pages 0-2
-                front_text = self._extract_front_matter(pdf)     # pages 0-14 or 5000 words
-                
+                front_text = self._extract_front_matter(pdf)     # pages 0-14 / 6000 words
+
                 # ── Title: try font-size heuristic on cover first ──────────
                 if metadata.title == "Unknown" or metadata.title == pdf_path.stem:
                     title_by_font = self._extract_title_by_font(pdf)
@@ -207,17 +390,50 @@ class MetadataIngestor:
                         metadata.title = title_by_font
                         logger.info(f"Font-heuristic title: {metadata.title}")
 
-                # ── Fill every field from text ─────────────────────────────
+                # ── Fill every field from text (regex / heuristics) ──────
                 self._infer_from_text(metadata, cover_text, front_text)
 
-                # ── LLM fallback for still-unknown fields ──────────────────
+                # ── Legacy LLM fallback ───────────────────────────────
                 if self.llm_fallback and self.llm_caller:
                     self._llm_fill(metadata, front_text[:3000])
 
         except Exception as e:
             logger.error(f"PDF extraction failed for {pdf_path}: {e}")
 
+        # ── AI pass: fill any remaining Unknown / empty fields ──────────
+        if self.use_ai:
+            anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+            gemini_key    = os.getenv("GEMINI_API_KEY")
+            if not anthropic_key and not gemini_key:
+                logger.warning("use_ai=True but neither ANTHROPIC_API_KEY nor GEMINI_API_KEY is set. Skipping AI pass.")
+            else:
+                ai = AIMetadataExtractor(
+                    anthropic_key=anthropic_key,
+                    gemini_key=gemini_key,
+                    preferred_model=self.preferred_model,
+                )
+                ai_result = ai.extract(front_text, pdf_path.name)
+                metadata  = self._merge(metadata, ai_result)
+
         return metadata
+
+    @staticmethod
+    def _merge(base: CourseMetadata, ai: CourseMetadata) -> CourseMetadata:
+        """
+        Merge AI result into the base (deterministic) result.
+        AI wins for any scalar field still 'Unknown' and any list still empty.
+        """
+        data = base.model_dump()
+        ai_data = ai.model_dump()
+        for field, val in data.items():
+            ai_val = ai_data.get(field)
+            if isinstance(val, list):
+                if not val and ai_val:
+                    data[field] = ai_val
+            else:
+                if val in ("Unknown", None, "") and ai_val not in ("Unknown", None, ""):
+                    data[field] = ai_val
+        return CourseMetadata(**data)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Text extraction helpers
@@ -643,58 +859,37 @@ class MetadataIngestor:
         logger.warning(f"HTML parsing not implemented for {path.name}.")
         return CourseMetadata(source=self.course_pdf_path.name)
 
-        # ── Fix _parse_url to match new signature (already in the improved script,
-#    just confirming it's correct) ─────────────────────────────────────────
-# self._infer_from_text(meta, content[:500], content)  ✓
-
 # ── Standalone CLI ───────────────────────────────────────────────────────
-# Preserved exactly as original, with two optional new flags:
-#
-# Original usage (still works identically):
+# Usage:
 #   python3 -m src.metadata --pdf data/courses/Dsa.pdf --output out.json
+#   python3 -m src.metadata --pdf data/courses/Dsa.pdf --output out.json --ai
+#   python3 -m src.metadata --pdf data/courses/Dsa.pdf --output out.json --ai --model gemini
 #   python3 -m src.metadata --pdf data/courses/Dsa.pdf --metadata https://example.com/meta.json --output out.json
-#
-# New optional flags:
-#   --llm-fallback          enable LLM gap-filling (requires --llm-model)
-#   --llm-model             model string passed to your existing LLM caller
 
 if __name__ == "__main__":
     import argparse
     import sys
+    from dotenv import load_dotenv
 
+    load_dotenv()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
 
     parser = argparse.ArgumentParser(
-        description=(
-            "Standalone Metadata Extractor — extract course metadata "
-            "to a reviewable JSON file."
-        )
+        description="Standalone Metadata Extractor — extract course metadata to a reviewable JSON file."
     )
-    # ── Original flags (unchanged) ────────────────────────────────────────
-    parser.add_argument(
-        "--pdf", type=str, required=True,
-        help="Path to the course PDF."
-    )
-    parser.add_argument(
-        "--metadata", type=str, default=None,
-        help="Optional explicit path or URL to an external metadata source."
-    )
-    parser.add_argument(
-        "--output", type=str, required=True,
-        help="Path to save the extracted JSON metadata for review."
-    )
-    # ── New optional flags (don't affect original usage) ──────────────────
-    parser.add_argument(
-        "--llm-fallback", action="store_true", default=False,
-        help="Enable LLM gap-filling for fields that regex could not extract."
-    )
-    parser.add_argument(
-        "--llm-model", type=str, default=None,
-        help="Model identifier to use for LLM fallback (e.g. 'claude-haiku-4-5-20251001')."
-    )
+    parser.add_argument("--pdf",      type=str, required=True,
+                        help="Path to the course PDF.")
+    parser.add_argument("--metadata", type=str, default=None,
+                        help="Optional explicit path or URL to an external metadata source.")
+    parser.add_argument("--output",   type=str, required=True,
+                        help="Path to save the extracted JSON metadata for review.")
+    parser.add_argument("--ai",       action="store_true", default=False,
+                        help="Enable AI extraction (Claude → Gemini fallback) to fill missing fields.")
+    parser.add_argument("--model",    type=str, default="claude", choices=["claude", "gemini"],
+                        help="Preferred AI model (default: claude). Only used when --ai is set.")
 
     args = parser.parse_args()
 
@@ -703,58 +898,23 @@ if __name__ == "__main__":
         logger.error(f"PDF file not found: {pdf_path}")
         sys.exit(1)
 
-    # ── Build optional LLM caller if requested ────────────────────────────
-    llm_caller = None
-    if args.llm_fallback:
-        if not args.llm_model:
-            logger.warning(
-                "--llm-fallback set but no --llm-model given. "
-                "Fallback will be skipped."
-            )
-        else:
-            # Thin wrapper — swap out for your project's existing LLM call
-            # pattern so it stays consistent with the rest of your pipeline.
-            try:
-                import anthropic  # or whatever client your project already uses
-                _client = anthropic.Anthropic()
-
-                def llm_caller(prompt: str) -> str:
-                    msg = _client.messages.create(
-                        model=args.llm_model,
-                        max_tokens=512,
-                        messages=[{"role": "user", "content": prompt}]
-                    )
-                    return msg.content[0].text
-
-            except ImportError:
-                logger.warning(
-                    "Could not import anthropic client. "
-                    "Install it or replace the llm_caller with your project's client."
-                )
-
-    # ── Run extraction (same flow as original) ────────────────────────────
     ingestor = MetadataIngestor(
         course_pdf_path=pdf_path,
         metadata_source=args.metadata,
-        llm_fallback=args.llm_fallback,
-        llm_caller=llm_caller,
+        use_ai=args.ai,
+        preferred_model=args.model,
     )
     metadata = ingestor.ingest()
 
-    # ── Save output (identical to original) ──────────────────────────────
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(metadata.model_dump_json(indent=2))
 
-    # ── Console output ────────────────────────────────────────────────────
     print(f"\n✅ Metadata saved to: {output_path}")
     print("   Review and edit the JSON, then pass it to the evaluator:")
-    print(
-        f"   python3 -m src.main --input <courses_dir> "
-        f"--output <output_dir> --metadata {output_path}"
-    )
+    print(f"   python3 -m src.main --input <courses_dir> --output <output_dir> --metadata {output_path}")
 
     print("\n── Extraction summary ──────────────────────────────────")
     fields = [
@@ -771,8 +931,9 @@ if __name__ == "__main__":
                               else metadata.description),
         ("prerequisites",    f"{len(metadata.prerequisites)} item(s)"),
         ("learning_outcomes",f"{len(metadata.learning_outcomes)} item(s)"),
+        ("contributing_authors", f"{len(metadata.contributing_authors)} item(s)"),
     ]
     for label, value in fields:
         status = "⚠ " if value in ("Unknown", "0 item(s)") else "✓ "
-        print(f"   {status}{label:<20} {value}")
+        print(f"   {status}{label:<22} {value}")
     print("────────────────────────────────────────────────────────")

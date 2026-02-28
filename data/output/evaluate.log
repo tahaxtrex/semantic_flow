@@ -499,3 +499,94 @@ anthropic.AuthenticationError: Error code: 401 - {'type': 'error', 'error': {'ty
 2026-02-25 17:12:55,488 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
 2026-02-25 17:12:55,488 [INFO] SemanticFlowEvaluator: Successfully evaluated Dsa.pdf -> Dsa_evaluation.json
 2026-02-25 17:12:55,488 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-28 14:19:29,964 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-28 14:19:29,964 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-28 14:19:29,964 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-28 14:19:29,964 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-28 14:19:29,965 [INFO] SemanticFlowEvaluator: Found 2 PDF(s) to process.
+2026-02-28 14:19:30,908 [INFO] SemanticFlowEvaluator: --- Processing: Dsa.pdf ---
+2026-02-28 14:19:30,909 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 14:19:31,672 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 14:19:36,425 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 2 segments for testing.
+2026-02-28 14:19:36,425 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (2 segments)
+2026-02-28 14:19:36,425 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/1 (2 segments)
+2026-02-28 14:19:36,425 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-28 14:19:36,426 [INFO] SemanticFlowEvaluator: Successfully evaluated Dsa.pdf -> Dsa_evaluation.json
+2026-02-28 14:19:36,426 [INFO] SemanticFlowEvaluator: --- Processing: firstpart.pdf ---
+2026-02-28 14:19:36,426 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 14:19:36,974 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 14:19:37,577 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 2 segments for testing.
+2026-02-28 14:19:37,577 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (1 segments)
+2026-02-28 14:19:37,577 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/1 (1 segments)
+2026-02-28 14:19:37,986 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-28 14:19:37,987 [INFO] SemanticFlowEvaluator: Successfully evaluated firstpart.pdf -> firstpart_evaluation.json
+2026-02-28 14:19:37,987 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-28 14:26:56,352 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-28 14:26:56,352 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-28 14:26:56,352 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-28 14:26:56,352 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-28 14:26:56,352 [INFO] SemanticFlowEvaluator: Found 2 PDF(s) to process.
+2026-02-28 14:26:57,112 [INFO] SemanticFlowEvaluator: --- Processing: Dsa.pdf ---
+2026-02-28 14:26:57,112 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 14:26:57,867 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 14:27:02,576 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 2 segments for testing.
+2026-02-28 14:27:02,576 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (2 segments)
+2026-02-28 14:27:02,576 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/1 (2 segments)
+2026-02-28 14:27:02,576 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-28 14:27:02,577 [INFO] SemanticFlowEvaluator: Successfully evaluated Dsa.pdf -> Dsa_evaluation.json
+2026-02-28 14:27:02,577 [INFO] SemanticFlowEvaluator: --- Processing: firstpart.pdf ---
+2026-02-28 14:27:02,577 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 14:27:03,109 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 14:27:03,696 [INFO] SemanticFlowEvaluator: Limiting evaluation to first 2 segments for testing.
+2026-02-28 14:27:03,696 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (1 segments)
+2026-02-28 14:27:03,696 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/1 (1 segments)
+2026-02-28 14:27:13,594 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-28 14:27:13,594 [INFO] SemanticFlowEvaluator: Successfully evaluated firstpart.pdf -> firstpart_evaluation.json
+2026-02-28 14:27:13,595 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-28 15:45:00,889 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-28 15:45:00,889 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-28 15:45:00,889 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-28 15:45:00,889 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-28 15:45:00,890 [INFO] SemanticFlowEvaluator: Found 2 PDF(s) to process.
+2026-02-28 15:45:01,621 [INFO] SemanticFlowEvaluator: --- Processing: Dsa.pdf ---
+2026-02-28 15:45:01,621 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 15:45:02,378 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 15:45:07,181 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (26 segments)
+2026-02-28 15:45:07,181 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/6 (5 segments)
+2026-02-28 15:45:07,181 [INFO] SemanticFlowEvaluator:   Evaluating batch 2/6 (5 segments)
+2026-02-28 15:45:07,181 [INFO] SemanticFlowEvaluator:   Evaluating batch 3/6 (5 segments)
+2026-02-28 15:45:07,525 [INFO] SemanticFlowEvaluator:   Evaluating batch 4/6 (5 segments)
+2026-02-28 15:45:07,681 [INFO] SemanticFlowEvaluator:   Evaluating batch 5/6 (5 segments)
+2026-02-28 15:45:07,822 [INFO] SemanticFlowEvaluator:   Evaluating batch 6/6 (1 segments)
+2026-02-28 15:45:08,068 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-28 15:45:08,071 [INFO] SemanticFlowEvaluator: Successfully evaluated Dsa.pdf -> Dsa_evaluation.json
+2026-02-28 15:45:08,071 [INFO] SemanticFlowEvaluator: --- Processing: firstpart.pdf ---
+2026-02-28 15:45:08,071 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 15:45:08,618 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 15:45:09,207 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (1 segments)
+2026-02-28 15:45:09,208 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/1 (1 segments)
+2026-02-28 15:45:09,395 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-28 15:45:09,396 [INFO] SemanticFlowEvaluator: Successfully evaluated firstpart.pdf -> firstpart_evaluation.json
+2026-02-28 15:45:09,396 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-02-28 15:48:25,154 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-02-28 15:48:25,154 [INFO] SemanticFlowEvaluator: Input directory: data/courses
+2026-02-28 15:48:25,154 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-02-28 15:48:25,154 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-02-28 15:48:25,154 [INFO] SemanticFlowEvaluator: Found 2 PDF(s) to process.
+2026-02-28 15:48:25,911 [INFO] SemanticFlowEvaluator: --- Processing: Dsa.pdf ---
+2026-02-28 15:48:25,911 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 15:48:26,691 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 15:48:31,347 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (26 segments)
+2026-02-28 15:48:31,348 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/6 (5 segments)
+2026-02-28 15:48:31,348 [INFO] SemanticFlowEvaluator:   Evaluating batch 2/6 (5 segments)
+2026-02-28 15:48:31,348 [INFO] SemanticFlowEvaluator:   Evaluating batch 3/6 (5 segments)
+2026-02-28 15:48:49,406 [INFO] SemanticFlowEvaluator:   Evaluating batch 4/6 (5 segments)
+2026-02-28 15:49:03,938 [INFO] SemanticFlowEvaluator:   Evaluating batch 5/6 (5 segments)
+2026-02-28 15:49:20,185 [INFO] SemanticFlowEvaluator:   Evaluating batch 6/6 (1 segments)
+2026-02-28 15:49:33,034 [INFO] SemanticFlowEvaluator: Step 4/4: Aggregation and Export
+2026-02-28 15:49:33,037 [INFO] SemanticFlowEvaluator: Successfully evaluated Dsa.pdf -> Dsa_evaluation.json
+2026-02-28 15:49:33,037 [INFO] SemanticFlowEvaluator: --- Processing: firstpart.pdf ---
+2026-02-28 15:49:33,037 [INFO] SemanticFlowEvaluator: Step 1/4: Metadata Extraction
+2026-02-28 15:49:33,609 [INFO] SemanticFlowEvaluator: Step 2/4: Deterministic Segmentation
+2026-02-28 15:49:34,170 [INFO] SemanticFlowEvaluator: Step 3/4: LLM Evaluation (1 segments)
+2026-02-28 15:49:34,170 [INFO] SemanticFlowEvaluator:   Evaluating batch 1/1 (1 segments)

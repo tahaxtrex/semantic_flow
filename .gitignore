@@ -14,3 +14,4 @@ ai/
 tests
 tests/
 /tests
+data/output/**

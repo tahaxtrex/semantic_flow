@@ -5,6 +5,7 @@ import sys
 import time
 import yaml
 from pathlib import Path
+from pydantic import ValidationError
 
 from typing import List, Tuple
 
@@ -135,7 +136,11 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
                 wait = RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))  # 5, 10, 20
                 if attempt < MAX_RETRIES_PER_BATCH:
                     err_str = str(e).lower()
-                    if not any(indicator in err_str for indicator in ['429', '503', 'rate limit', 'quota', 'service unavailable', 'overloaded']):
+                    retryable = (
+                        isinstance(e, (ValidationError, json.JSONDecodeError))
+                        or any(indicator in err_str for indicator in ['429', '503', 'rate limit', 'quota', 'service unavailable', 'overloaded'])
+                    )
+                    if not retryable:
                         logger.error(f"{model_name} failed with non-retryable error for batch: {e}")
                         raise e
 
@@ -183,21 +188,28 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
         system_prompt, user_prompt = self._build_batch_prompts(metadata, instructional_segments)
 
         # Evaluate using strict model selection (no cascading between Claude and Gemini mid-run)
-        if self.anthropic_client:
-            evals = self._retry_call(
-                lambda: self._call_claude_batch(system_prompt, user_prompt, instructional_segments),
-                "Claude",
-                len(instructional_segments)
+        try:
+            if self.anthropic_client:
+                evals = self._retry_call(
+                    lambda: self._call_claude_batch(system_prompt, user_prompt, instructional_segments),
+                    "Claude",
+                    len(instructional_segments)
+                )
+            elif self.gemini_client:
+                evals = self._retry_call(
+                    lambda: self._call_gemini_batch(system_prompt, user_prompt, instructional_segments),
+                    "Gemini",
+                    len(instructional_segments)
+                )
+            else:
+                logger.critical("Fatal: Both clients are missing API keys.")
+                raise ValueError("No API client configured.")
+        except Exception as e:
+            logger.error(
+                f"Batch of {len(instructional_segments)} segments failed after all retries; "
+                f"marking as incomplete. Error: {e}"
             )
-        elif self.gemini_client:
-            evals = self._retry_call(
-                lambda: self._call_gemini_batch(system_prompt, user_prompt, instructional_segments),
-                "Gemini",
-                len(instructional_segments)
-            )
-        else:
-            logger.critical("Fatal: Both clients are missing API keys.")
-            raise ValueError("No API client configured.")
+            evals = [self._make_incomplete_segment(s) for s in instructional_segments]
 
         results.extend(evals)
         return sorted(results, key=lambda x: x.segment_id)
@@ -212,17 +224,85 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
             text = text[:-3]
         return json.loads(text.strip())
 
+    _SCORE_FIELDS = [
+        "goal_focus", "text_readability", "pedagogical_clarity", "prerequisite_alignment",
+        "fluidity_continuity", "structural_usability", "example_concreteness",
+        "example_coherence", "business_relevance", "instructional_alignment",
+    ]
+    _RATIONALE_FIELDS = [f"{f}_rationale" for f in _SCORE_FIELDS]
+
+    _EVAL_TOOL = {
+        "name": "submit_evaluations",
+        "description": "Submit the pedagogical evaluations for all provided segments.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "evaluations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "segment_id": {"type": "integer"},
+                            "scores": {
+                                "type": "object",
+                                "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _SCORE_FIELDS},
+                                "required": _SCORE_FIELDS,
+                            },
+                            "reasoning": {
+                                "type": "object",
+                                "properties": {f: {"type": "string"} for f in _RATIONALE_FIELDS},
+                                "required": _RATIONALE_FIELDS,
+                            },
+                        },
+                        "required": ["segment_id", "scores", "reasoning"],
+                    },
+                }
+            },
+            "required": ["evaluations"],
+        },
+    }
+
+    def _make_incomplete_segment(self, segment: Segment) -> EvaluatedSegment:
+        return EvaluatedSegment(
+            segment_id=segment.segment_id,
+            heading=segment.heading,
+            text=segment.text,
+            segment_type=segment.segment_type,
+            scores=SectionScores(
+                goal_focus=0, text_readability=0, pedagogical_clarity=0,
+                prerequisite_alignment=0, fluidity_continuity=0, structural_usability=0,
+                example_concreteness=0, example_coherence=0, business_relevance=0,
+                instructional_alignment=0,
+            ),
+            reasoning=SectionReasoning(),
+            incomplete=True,
+        )
+
     def _match_evaluations(self, data: list, segments: List[Segment]) -> List[EvaluatedSegment]:
         evals = []
         data_by_id = {item["segment_id"]: item for item in data if "segment_id" in item}
 
         for segment in segments:
             if segment.segment_id not in data_by_id:
-                raise ValueError(f"Missing evaluation for segment_id {segment.segment_id} in LLM output.")
+                logger.warning(f"Missing evaluation for segment_id {segment.segment_id}; marking as incomplete.")
+                evals.append(self._make_incomplete_segment(segment))
+                continue
 
             item = data_by_id[segment.segment_id]
-            scores = SectionScores(**item.get("scores", {}))
-            reasoning = SectionReasoning(**item.get("reasoning", {}))
+            try:
+                scores = SectionScores(**item.get("scores", {}))
+                reasoning = SectionReasoning(**item.get("reasoning", {}))
+                incomplete = False
+            except (ValidationError, Exception) as e:
+                logger.warning(f"Partial/invalid evaluation for segment {segment.segment_id}: {e}. Marking as incomplete.")
+                scores = SectionScores(
+                    goal_focus=0, text_readability=0, pedagogical_clarity=0,
+                    prerequisite_alignment=0, fluidity_continuity=0, structural_usability=0,
+                    example_concreteness=0, example_coherence=0, business_relevance=0,
+                    instructional_alignment=0,
+                )
+                reasoning = SectionReasoning()
+                incomplete = True
 
             evals.append(EvaluatedSegment(
                 segment_id=segment.segment_id,
@@ -230,7 +310,8 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
                 text=segment.text,
                 segment_type=segment.segment_type,
                 scores=scores,
-                reasoning=reasoning
+                reasoning=reasoning,
+                incomplete=incomplete,
             ))
         return evals
 
@@ -238,14 +319,16 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
         logger.info(f"Evaluating batch of {len(segments)} segments via Claude")
         response = self.anthropic_client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=4000,
+            max_tokens=8192,
             temperature=0.2,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}]
+            messages=[{"role": "user", "content": user_prompt}],
+            tools=[self._EVAL_TOOL],
+            tool_choice={"type": "tool", "name": "submit_evaluations"},
         )
 
-        raw_text = response.content[0].text
-        data = self._parse_json_result(raw_text)
+        tool_block = next(b for b in response.content if b.type == "tool_use")
+        data = tool_block.input["evaluations"]
         return self._match_evaluations(data, segments)
 
     def _call_gemini_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
