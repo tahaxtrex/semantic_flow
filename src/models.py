@@ -37,20 +37,21 @@ class SectionScores(BaseModel):
     instructional_alignment: int
 
 class SectionReasoning(BaseModel):
-    goal_focus_rationale: str
-    text_readability_rationale: str
-    pedagogical_clarity_rationale: str
-    prerequisite_alignment_rationale: str
-    fluidity_continuity_rationale: str
-    structural_usability_rationale: str
-    example_concreteness_rationale: str
-    example_coherence_rationale: str
-    business_relevance_rationale: str
-    instructional_alignment_rationale: str
+    goal_focus_rationale: str = ""
+    text_readability_rationale: str = ""
+    pedagogical_clarity_rationale: str = ""
+    prerequisite_alignment_rationale: str = ""
+    fluidity_continuity_rationale: str = ""
+    structural_usability_rationale: str = ""
+    example_concreteness_rationale: str = ""
+    example_coherence_rationale: str = ""
+    business_relevance_rationale: str = ""
+    instructional_alignment_rationale: str = ""
 
 class EvaluatedSegment(Segment):
     scores: SectionScores
     reasoning: SectionReasoning
+    incomplete: bool = False
 
 class CourseEvaluation(BaseModel):
     course_metadata: CourseMetadata

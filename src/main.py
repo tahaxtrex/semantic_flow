@@ -52,6 +52,12 @@ def main():
         default=None,
         help='Optional path or URL to metadata file (JSON, TXT, HTML, or PDF). Only extracted if provided.'
     )
+    parser.add_argument(
+        '--ai',
+        action='store_true',
+        default=False,
+        help='Use AI (Claude → Gemini fallback) to fill missing metadata fields.'
+    )
     
     args = parser.parse_args()
     
