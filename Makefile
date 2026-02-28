@@ -2,14 +2,40 @@
 
 # Python executable to use
 PYTHON = python3
-VENV = .venv
-VENV_BIN = $(VENV)/bin
+
+# Detect virtual environment
+ifeq ($(wildcard .venv),)
+	# .venv doesn't exist, check if current python is in a conda/micromamba env
+	PYTHON_PATH := $(shell which python3 2>/dev/null || which python 2>/dev/null)
+	ifneq ($(PYTHON_PATH),)
+		# Check if the python path contains /envs/ (indicator of conda/micromamba)
+		ifneq ($(findstring /envs/,$(PYTHON_PATH)),)
+			# Extract the environment directory (parent of bin directory)
+			VENV := $(shell dirname $(shell dirname $(PYTHON_PATH)))
+		else
+			VENV := .venv
+		endif
+	else
+		VENV := .venv
+	endif
+else
+	VENV := .venv
+endif
+
+VENV_BIN := $(VENV)/bin
 
 setup:
-	@echo "Setting up virtual environment..."
-	$(PYTHON) -m venv $(VENV)
-	@echo "Virtual environment created at $(VENV)."
-	@echo "Run 'make install' to install dependencies."
+	@if [ -d ".venv" ]; then \
+		echo "Virtual environment already exists at .venv"; \
+	elif [ "$(VENV)" != ".venv" ]; then \
+		echo "Detected existing conda/micromamba environment at $(VENV)"; \
+		echo "Skipping virtual environment creation. Run 'make install' to install dependencies."; \
+	else \
+		echo "Setting up virtual environment..."; \
+		$(PYTHON) -m venv $(VENV); \
+		echo "Virtual environment created at $(VENV)."; \
+		echo "Run 'make install' to install dependencies."; \
+	fi
 
 install:
 	@echo "Installing dependencies..."
