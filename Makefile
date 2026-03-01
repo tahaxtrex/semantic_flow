@@ -44,16 +44,17 @@ install:
 	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env file. Please add your API keys."; fi
 
 run:
-	@echo "Running SemanticFlow Evaluator (Claude deterministic metadata)..."
-	$(VENV_BIN)/python -m src.main --input data/courses --output data/output --config config/rubrics.yaml --model claude
+	@echo "Running SemanticFlow Evaluator with AI Metadata Extraction (Claude)..."
+	$(VENV_BIN)/python -m src.main --input data/courses --output data/output --config config/rubrics.yaml --ai --model claude
+
 
 run-gemini:
 	@echo "Running SemanticFlow Evaluator (Gemini deterministic metadata)..."
-	$(VENV_BIN)/python -m src.main --input data/courses --output data/output --config config/rubrics.yaml --model gemini
+	$(VENV_BIN)/python -m src.main --input data/courses --output data/output --config config/rubrics.yaml --ai --model gemini
 
-run-ai:
-	@echo "Running SemanticFlow Evaluator with AI Metadata Extraction (Claude)..."
-	$(VENV_BIN)/python -m src.main --input data/courses --output data/output --config config/rubrics.yaml --ai --model claude
+run-no-ai:
+	@echo "Running SemanticFlow Evaluator (Claude deterministic metadata)..."
+	$(VENV_BIN)/python -m src.main --input data/courses --output data/output --config config/rubrics.yaml --model claude
 
 extract-metadata:
 	@if [ -z "$(PDF)" ]; then echo "Usage: make extract-metadata PDF=data/courses/your_file.pdf OUT=data/courses/your_file.json"; exit 1; fi
