@@ -1,3 +1,15 @@
+## 2026-03-02 — Project Scoping: Two-Gate Assessment Architecture
+**Type:** Architecture Redesign / Scope change
+**What changed:** 
+- `spec/DECISIONS.md`: Added ADR-016 accepting the split of evaluation into distinct Course and Module gates.
+- `spec/QUESTIONS.md`: Logged Q-014 through Q-023 to clarify execution, aggregation, and codebase decoupling parameters before implementation.
+- `spec/task.md`: Tasks drafted to divide `rubrics.yaml`, rewrite `evaluator.py`, and separate `models.py`.
+**Why it changed:** User identified that evaluating course-level metrics (e.g. Structure, Prerequisites) on an atomic, segment-by-segment basis was pedagogically inaccurate. Assessment needed to mirror real-world program design natively.
+**Impact:** 
+- The entire evaluation script will be decoupled into two stages.
+- `rubrics.yaml` will be restructured.
+- Phase 0/1 Discovery initiated to define the exact runtime mechanics.
+
 ## 2026-02-25 — Multi-Issue Resolution & Pipeline Hardening
 **Type:** Bug fixes & Architecture Redesign
 **What changed:** 

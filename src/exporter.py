@@ -14,7 +14,12 @@ class JSONExporter:
     def export(self, evaluation: CourseEvaluation) -> Path:
         """Saves CourseEvaluation to a descriptive JSON file matching ADR-004 logic."""
         # Cleanly derive base_name from the source file
-        source = evaluation.course_metadata.source
+        # course_metadata may be stored as a dict (after model_dump) or as a Pydantic model
+        metadata = evaluation.course_metadata
+        if isinstance(metadata, dict):
+            source = metadata.get("source", "Unknown")
+        else:
+            source = getattr(metadata, "source", "Unknown")
         if source and source != "Unknown":
             base_name = Path(source).stem
         else:

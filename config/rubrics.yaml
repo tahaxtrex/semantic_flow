@@ -4,10 +4,11 @@
 # weight: contribution to overall_score (1.0 = equal weight; adjust for experiments).
 # scoring_guide: concrete anchors to reduce LLM score variance.
 #
-# MIGRATION NOTE: Migrated from flat-dict format to list format (2026-02-20).
-# This is the single authoritative definition of all rubric dimensions.
+# ARCHITECTURE: Two-Gate Assessment Model (ADR-016, ADR-017)
+# - module_rubrics: Assess atomic content segments (chapters people read).
+# - course_rubrics:  Assess holistic structure & coherence of the course as a whole.
 
-rubrics:
+module_rubrics:
   - id: goal_focus
     name: "Goal Focus"
     description: >
@@ -44,41 +45,6 @@ rubrics:
       mid: "4-6: Some terms undefined, occasional clarity issues"
       high: "7-10: All terms defined at first use, consistently clear language"
 
-  - id: prerequisite_alignment
-    name: "Prerequisite Alignment"
-    description: >
-      Are foundational concepts introduced before dependent ones?
-      Are prerequisites clearly stated when assumed? Objectives should be
-      logically sequenced to contribute to the overall program goal.
-    weight: 1.0
-    scoring_guide:
-      low: "1-3: Concepts used before introduction, prerequisites unstated"
-      mid: "4-6: Mostly ordered but some gaps in prerequisite handling"
-      high: "7-10: Clear logical progression, all prerequisites explicit"
-
-  - id: fluidity_continuity
-    name: "Fluidity and Continuity"
-    description: >
-      Do transitions between paragraphs and modules feel coherent,
-      or does the content jump abruptly between unrelated topics?
-    weight: 1.0
-    scoring_guide:
-      low: "1-3: Jarring transitions, disconnected topics, abrupt jumps"
-      mid: "4-6: Some rough transitions but generally followable"
-      high: "7-10: Smooth, logical flow throughout the section"
-
-  - id: structural_usability
-    name: "Structural Usability"
-    description: >
-      Is the course logically organized? Are navigation instructions clear?
-      Are boundaries, elements, and guidelines explicit? Technical requirements
-      and support resources should be easily locatable.
-    weight: 1.0
-    scoring_guide:
-      low: "1-3: Poor organization, missing navigation cues, unclear structure"
-      mid: "4-6: Adequate structure but some sections hard to navigate"
-      high: "7-10: Well-organized with clear navigation and explicit structure"
-
   - id: example_concreteness
     name: "Example Concreteness"
     description: >
@@ -101,25 +67,64 @@ rubrics:
       mid: "4-6: Some thematic connection but inconsistencies exist"
       high: "7-10: Examples build on each other and form a coherent narrative"
 
-  - id: business_relevance
-    name: "Business Relevance"
-    description: >
-      Does the content directly address identified performance gaps?
-      Are specific, practical takeaways immediately applicable to learner goals?
-    weight: 1.0
-    scoring_guide:
-      low: "1-3: Content is theoretical with no practical application"
-      mid: "4-6: Some practical elements but not tied to specific performance gaps"
-      high: "7-10: Directly addresses performance gaps with actionable takeaways"
-
   - id: instructional_alignment
     name: "Instructional Alignment"
     description: >
       Are instructional materials current, accurate, and professionally presented?
-      Is the relationship between materials, activities, and assessments clear
-      and effective?
+      Is the relationship between the learning content, activities, and stated
+      objectives clear and effective within this segment?
     weight: 1.0
     scoring_guide:
       low: "1-3: Outdated materials, unclear relationship between components"
       mid: "4-6: Mostly current but some alignment gaps"
       high: "7-10: All materials aligned, current, and professionally presented"
+
+course_rubrics:
+  - id: prerequisite_alignment
+    name: "Prerequisite Alignment"
+    description: >
+      Across the whole course, are foundational concepts introduced before
+      dependent ones? Are prerequisites clearly stated when assumed?
+      Does the course ordering respect the learner's expected knowledge base?
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Concepts used before introduction, prerequisites unstated or incorrect"
+      mid: "4-6: Mostly ordered but some gaps in prerequisite handling across modules"
+      high: "7-10: Clear logical progression across all modules, all prerequisites explicit"
+
+  - id: structural_usability
+    name: "Structural Usability"
+    description: >
+      Is the course as a whole logically organized? Are navigation and
+      module boundaries clear? Are the overall structure, table of contents,
+      and guidelines explicit? Technical requirements and support resources
+      should be easily locatable.
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Poor organization, missing navigation cues, unclear module structure"
+      mid: "4-6: Adequate structure but some modules are hard to navigate or locate"
+      high: "7-10: Well-organized course with clear navigation and explicit module structure"
+
+  - id: business_relevance
+    name: "Business Relevance"
+    description: >
+      Are specific, practical takeaways immediately applicable to learner learning outcomes?
+      Does the overall course directly address real-world performance gaps that the
+      target audience faces?
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Course content is theoretical with no practical application"
+      mid: "4-6: Some practical elements but not consistently tied to real performance gaps"
+      high: "7-10: Directly addresses performance gaps with actionable takeaways throughout"
+
+  - id: fluidity_continuity
+    name: "Fluidity and Continuity"
+    description: >
+      Do transitions between modules feel coherent and intentional, or does
+      the course jump abruptly between unrelated topics? Does the narrative
+      thread carry naturally from one module to the next?
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Jarring module-to-module transitions, disconnected topics, abrupt jumps"
+      mid: "4-6: Some rough inter-module transitions but overall followable"
+      high: "7-10: Smooth, logical flow between modules throughout the entire course"

@@ -107,3 +107,92 @@
 
 **Question:** Why does the metadata extraction module need to be independently executable?
 **Answer:** To provide a safer "human in the loop" workflow. Inferred metadata (title, audience, prerequisites) can contain errors or missing fields. By extracting metadata to a reviewable JSON file first, the user can manually audit and correct it before it influences LLM evaluation scores. This prevents hallucinations caused by incorrect course context being injected into the grading prompt.
+
+---
+
+# Phase 0/1: Architecture Restructuring (Course vs Module Gates)
+
+## Q-014: Scope of Course Gate
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** Should the Course Gate evaluate the course holistically at the very end (using extracted metadata, TOC, and aggregated insights), or does it evaluate batch-by-batch concurrently with the Module Gate?
+**Answer:** All segments are assessed from a module rubric perspective first. Then, using a summary of all module assessments and their content, assess the whole course from a course rubric perspective at the very end.
+
+## Q-015: Course Gate Context Limit
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** If the Course Gate runs holistically, how do we handle LLM token limits for massive courses? Do we pass a distilled summary of all modules, or just the metadata + table of contents?
+**Answer:** Opt for the best architectural decision based on Answer 1: provide a distilled summary of what the modules have and take them all at once.
+
+## Q-016: Rubric Mapping Validation
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** Is the following rubric split correct? 
+- **Module Gate:** Goal Focus, Text Readability, Pedagogical Clarity, Example Concreteness, Example Coherence, Fluidity & Continuity.
+- **Course Gate:** Prerequisite Alignment, Structural Usability, Business Relevance, Instructional Alignment.
+**Answer:** No. Fluidity & Continuity should be in the Course Gate. Instructional Alignment should be in the Module Gate.
+Corrected Split:
+- **Module Gate:** Goal Focus, Text Readability, Pedagogical Clarity, Example Concreteness, Example Coherence, Instructional Alignment.
+- **Course Gate:** Prerequisite Alignment, Structural Usability, Business Relevance, Fluidity & Continuity.
+
+## Q-017: Overall Score Aggregation
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** How should the final "overall score" be computed? Should the JSON output two top-level scores (`course_score` and `module_average_score`), or mathematically blend them into one?
+**Answer:** Have a score for each individual rubric and a designated overall score for *each* gate independently.
+
+## Q-018: Evaluating Non-Instructional Segments
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** We currently bypass LLM evaluation for non-instructional segments (TOC, Preface, Exercises). Under the new two-gate system, should the Course Gate analyze these segments to assess Structural Usability and Alignment?
+**Answer:** Yes.
+
+## Q-019: Codebase Decoupling
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** Should we explicitly split `SectionScores` and `SectionReasoning` in `models.py` into distinct `CourseScores` and `ModuleScores` schema objects to strictly enforce the gate separation?
+**Answer:** Yes.
+
+## Q-020: Output Granularity for Course Gate
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** For the Module Gate, we track exact text per segment. For the Course Gate, does it yield one single evaluation object for the entire book, or does it still evaluate per-segment?
+**Answer:** For course assessment, it should take just small summaries of what modules have and evaluate them all at once, yielding one single evaluation object for the entire course, not per-segment.
+
+## Q-021: Execution Order
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** Does the Course Gate evaluation trigger only after the Module Gate finishes evaluating all chapters, acting as a final capstone LLM call?
+**Answer:** Yes, it acts as an optimized, capstone LLM call.
+
+## Q-022: Distinct System Prompts
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** Do we need completely separate system prompts and `rubrics.yaml` definitions for the Course Gate vs the Module Gate, stripping out irrelevant criteria from each?
+**Answer:** Yes.
+
+## Q-023: Delegating Context
+**Phase:** Architecture
+**Date:** 2026-03-02
+**Status:** Answered
+
+**Question:** If "Prerequisite Alignment" is moved completely to the Course Gate, can the Module Gate safely ignore prerequisites, saving significant prompt tokens per chunk?
+**Answer:** Yes.

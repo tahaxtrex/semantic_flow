@@ -292,3 +292,48 @@ Previously, metadata extraction was tightly coupled to the evaluation run. The s
 - Does not interfere with the original auto-scan pipeline.
 
 **Linked Requirements:** FR-001, FR-002, FR-009
+
+---
+
+## ADR-016: Two-Gate Assessment Architecture (Course vs. Module)
+
+**Date:** 2026-03-02
+**Status:** Accepted
+
+**Context:**
+The evaluation criteria previously applied all 10 rubrics uniformly to every instructional segment. However, in the context of educational structures, rubrics logically apply to different domains: "Modules" (the actual content people read) vs "Courses" (how the modules are structured, related, and overall metadata alignment). The user directed a restructure into two distinct gates to reflect this reality.
+
+**Decision:**
+The pedagogical evaluation will be divided into two gates:
+1. **Module Gate**: Evaluates the atomic content chapters for quality (Goal Focus, Text Readability, Pedagogical Clarity, Example Concreteness, Example Coherence, Instructional Alignment).
+2. **Course Gate**: Evaluates the holistic structure and alignment of the entire program (Prerequisite Alignment, Structural Usability, Business Relevance, Fluidity & Continuity).
+
+**Consequences:**
+- The codebase will need distinct pathways and Pydantic schemas for Module-level and Course-level evaluations.
+- The `rubrics.yaml` will be structurally divided.
+- LLM prompts will become more targeted, reducing cognitive load by removing irrelevant rubrics from chunk-level evaluations.
+
+**Linked Requirements:** (Pending Phase 1 requirement generation for Two-Gate Architecture)
+
+---
+
+## ADR-017: Capstone Course Gate Execution
+
+**Date:** 2026-03-02
+**Status:** Accepted
+
+**Context:**
+With the split of course vs. module assessment (ADR-016), we must decide how the LLM accesses the entire textbook to grade the Course Gate rubrics without blowing past token limits or incurring massive API costs.
+
+**Decision:**
+1. The **Module Gate** executes first, traversing the textbook segment-by-segment in batches exactly as it does now, but scoring only the 6 Module rubrics.
+2. During Module execution, we ask the LLM to provide a 1-2 sentence "content summary" of each segment.
+3. Once all modules are evaluated, the **Course Gate** executes exactly once as a capstone call.
+4. The Course Gate is provided with: Course Metadata, the concatenated list of segment summaries (forming a sequential narrative of the book's flow), and the bypassed Non-Instructional segments (TOC, preface).
+5. The Course Gate returns a single set of 4 scores and rationales for the entire textbook.
+
+**Consequences:**
+- Very low token cost for the Course evaluation (only summaries and TOC are sent).
+- Perfectly isolates the holistic rubrics from the atomic ones in `models.py`.
+- Generates two completely distinct overall scores (`course_average_score` and `module_average_score`) to avoid polluting data.
+

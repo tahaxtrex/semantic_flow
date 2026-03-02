@@ -7,13 +7,17 @@ import yaml
 from pathlib import Path
 from pydantic import ValidationError
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from anthropic import Anthropic
 from google import genai
 from google.genai import types
 
-from src.models import Segment, CourseMetadata, EvaluatedSegment, SectionScores, SectionReasoning
+from src.models import (
+    Segment, CourseMetadata,
+    EvaluatedSegment, ModuleScores, ModuleReasoning,
+    CourseAssessment, CourseScores, CourseReasoning,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +27,24 @@ RETRY_BACKOFF_SECONDS = 5  # doubles each attempt: 5s → 10s → 20s
 
 
 class LLMEvaluator:
-    """Evaluates pedagogical segments using Claude or Gemini in batched mode.
+    """Two-Gate pedagogical evaluator using Claude or Gemini.
 
-    Features:
-    - Batching: Evaluates multiple segments per API call to save on system prompt tokens.
-    - System Prompt Isolation: Rubrics are isolated to the system prompt.
-    - No Cascading: To preserve scientific validity, a run uses exactly one model 
-      and fails loudly if it exhausts retries, rather than silently blending results.
+    Gate 1 — Module Gate:
+        Evaluates each instructional segment in batches on 6 rubrics (readability,
+        clarity, examples, goal focus, instructional alignment). Each segment also
+        produces a 1-2 sentence content summary for use in the Course Gate.
+
+    Gate 2 — Course Gate:
+        Executes a single capstone call once ALL Module Gate evaluations are done.
+        Receives the course metadata, the non-instructional segment text (TOC, Preface),
+        and the ordered list of per-segment summaries. Scores 4 holistic rubrics
+        (prerequisite alignment, structural usability, business relevance, fluidity).
     """
 
     def __init__(self, config_path: Path, preferred_model: str = "claude"):
         self.config_path = Path(config_path)
-        self.rubrics = self._load_rubrics()
         self.preferred_model = preferred_model.lower()
+        self.module_rubrics_yaml, self.course_rubrics_yaml = self._load_rubrics()
 
         self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         self.gemini_key = os.getenv("GEMINI_API_KEY")
@@ -56,69 +65,17 @@ class LLMEvaluator:
         else:
             raise ValueError(f"Unsupported model requested: {self.preferred_model}")
 
-    def _load_rubrics(self) -> str:
+    def _load_rubrics(self) -> Tuple[str, str]:
+        """Load and return (module_rubrics_yaml, course_rubrics_yaml) as YAML strings."""
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        return yaml.dump(data, sort_keys=False)
+        module_yaml = yaml.dump({"module_rubrics": data["module_rubrics"]}, sort_keys=False)
+        course_yaml = yaml.dump({"course_rubrics": data["course_rubrics"]}, sort_keys=False)
+        return module_yaml, course_yaml
 
-    def _build_batch_prompts(self, metadata: CourseMetadata, segments: List[Segment]) -> Tuple[str, str]:
-        system_prompt = f"""
-You are an expert pedagogical evaluator. Evaluate the provided course segments based strictly on the following rubrics.
-
-COURSE METADATA:
-Title: {metadata.title}
-Target Audience: {metadata.target_audience}
-Prerequisites: {', '.join(metadata.prerequisites) if metadata.prerequisites else 'None specified'}
-Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
-
-RUBRICS:
-{self.rubrics}
-
-EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
-- Figures referenced in the text (e.g. "Fig. 1.1") are not available as images. Evaluate figure references positively as indicators of visual support.
-- [FIGURE X.Y: caption] markers show a figure caption extracted from the PDF — treat as evidence of visual content.
-- Text was extracted from PDF; minor formatting artifacts (e.g. [?] placeholders) are NOT a property of the course.
-- [TABLE: ...] markers indicate a table was detected but could not be rendered as prose — treat as a structured reference element, not missing content.
-- [CODE] / [/CODE] blocks contain verbatim code examples extracted from a monospace font region.
-
-Your response must be ONLY a valid JSON array of evaluation objects, one for each segment provided. Do not include markdown blocks or any other text. The JSON array must adhere exactly to the following structure:
-[
-    {{
-        "segment_id": <int>,
-        "scores": {{
-            "goal_focus": <int 1-10>,
-            "text_readability": <int 1-10>,
-            "pedagogical_clarity": <int 1-10>,
-            "prerequisite_alignment": <int 1-10>,
-            "fluidity_continuity": <int 1-10>,
-            "structural_usability": <int 1-10>,
-            "example_concreteness": <int 1-10>,
-            "example_coherence": <int 1-10>,
-            "business_relevance": <int 1-10>,
-            "instructional_alignment": <int 1-10>
-        }},
-        "reasoning": {{
-            "goal_focus_rationale": "...",
-            "text_readability_rationale": "...",
-            "pedagogical_clarity_rationale": "...",
-            "prerequisite_alignment_rationale": "...",
-            "fluidity_continuity_rationale": "...",
-            "structural_usability_rationale": "...",
-            "example_concreteness_rationale": "...",
-            "example_coherence_rationale": "...",
-            "business_relevance_rationale": "...",
-            "instructional_alignment_rationale": "..."
-        }}
-    }}
-]
-"""
-        user_prompt = "Score the following segments:\n\n"
-        for s in segments:
-            user_prompt += f"--- SEGMENT ID: {s.segment_id} ---\n"
-            user_prompt += f"Heading: {s.heading or 'None'}\n"
-            user_prompt += f"Text:\n{s.text}\n\n"
-
-        return system_prompt.strip(), user_prompt.strip()
+    # -------------------------------------------------------------------------
+    # SHARED UTILITIES
+    # -------------------------------------------------------------------------
 
     def _retry_call(self, call_fn, model_name: str, batch_size: int):
         last_exc = None
@@ -155,29 +112,203 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
                     )
         raise last_exc
 
+    def _parse_json_result(self, text: str) -> list:
+        text = text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        return json.loads(text.strip())
+
+    # -------------------------------------------------------------------------
+    # MODULE GATE — Field Definitions
+    # -------------------------------------------------------------------------
+
+    _MODULE_SCORE_FIELDS = [
+        "goal_focus", "text_readability", "pedagogical_clarity",
+        "example_concreteness", "example_coherence", "instructional_alignment",
+    ]
+    _MODULE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _MODULE_SCORE_FIELDS]
+
+    _MODULE_EVAL_TOOL = {
+        "name": "submit_module_evaluations",
+        "description": "Submit the Module Gate evaluations for all provided instructional segments.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "evaluations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "segment_id": {"type": "integer"},
+                            "summary": {
+                                "type": "string",
+                                "description": "1-2 sentence content summary of this segment's topic and key concepts."
+                            },
+                            "scores": {
+                                "type": "object",
+                                "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _MODULE_SCORE_FIELDS},
+                                "required": _MODULE_SCORE_FIELDS,
+                            },
+                            "reasoning": {
+                                "type": "object",
+                                "properties": {f: {"type": "string"} for f in _MODULE_RATIONALE_FIELDS},
+                                "required": _MODULE_RATIONALE_FIELDS,
+                            },
+                        },
+                        "required": ["segment_id", "summary", "scores", "reasoning"],
+                    },
+                }
+            },
+            "required": ["evaluations"],
+        },
+    }
+
+    # -------------------------------------------------------------------------
+    # MODULE GATE — Prompt Builder
+    # -------------------------------------------------------------------------
+
+    def _build_module_batch_prompts(self, metadata: CourseMetadata, segments: List[Segment]) -> Tuple[str, str]:
+        system_prompt = f"""
+You are an expert pedagogical evaluator. Evaluate the provided course segments based strictly on the following MODULE rubrics.
+
+COURSE CONTEXT (for reference only — do not score course-level structure here):
+Title: {metadata.title}
+Target Audience: {metadata.target_audience}
+Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
+
+MODULE RUBRICS (score each segment on ONLY these 6 dimensions):
+{self.module_rubrics_yaml}
+
+EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
+- Figures referenced in the text (e.g. "Fig. 1.1") are not available as images. Evaluate figure references positively as indicators of visual support.
+- [FIGURE X.Y: caption] markers show a figure caption extracted from the PDF — treat as evidence of visual content.
+- Text was extracted from PDF; minor formatting artifacts (e.g. [?] placeholders) are NOT a property of the course.
+- [TABLE: ...] markers indicate a table was detected but could not be rendered as prose — treat as a structured reference element.
+- [CODE] / [/CODE] blocks contain verbatim code examples extracted from a monospace font region.
+
+For each segment, you must also provide a 1-2 sentence 'summary' of the segment's topic and key concepts.
+This summary will be used as context in a subsequent holistic course-level evaluation.
+"""
+        user_prompt = "Score the following segments:\n\n"
+        for s in segments:
+            user_prompt += f"--- SEGMENT ID: {s.segment_id} ---\n"
+            user_prompt += f"Heading: {s.heading or 'None'}\n"
+            user_prompt += f"Text:\n{s.text}\n\n"
+
+        return system_prompt.strip(), user_prompt.strip()
+
+    # -------------------------------------------------------------------------
+    # MODULE GATE — Execution
+    # -------------------------------------------------------------------------
+
+    def _make_incomplete_segment(self, segment: Segment) -> EvaluatedSegment:
+        return EvaluatedSegment(
+            segment_id=segment.segment_id,
+            heading=segment.heading,
+            text=segment.text,
+            segment_type=segment.segment_type,
+            scores=ModuleScores(
+                goal_focus=0, text_readability=0, pedagogical_clarity=0,
+                example_concreteness=0, example_coherence=0, instructional_alignment=0,
+            ),
+            reasoning=ModuleReasoning(),
+            summary="",
+            incomplete=True,
+        )
+
+    def _match_module_evaluations(self, data: list, segments: List[Segment]) -> List[EvaluatedSegment]:
+        evals = []
+        data_by_id = {item["segment_id"]: item for item in data if "segment_id" in item}
+
+        for segment in segments:
+            if segment.segment_id not in data_by_id:
+                logger.warning(f"Missing evaluation for segment_id {segment.segment_id}; marking as incomplete.")
+                evals.append(self._make_incomplete_segment(segment))
+                continue
+
+            item = data_by_id[segment.segment_id]
+            try:
+                scores = ModuleScores(**item.get("scores", {}))
+                reasoning = ModuleReasoning(**item.get("reasoning", {}))
+                summary = item.get("summary", "")
+                incomplete = False
+            except (ValidationError, Exception) as e:
+                logger.warning(f"Partial/invalid module evaluation for segment {segment.segment_id}: {e}. Marking as incomplete.")
+                scores = ModuleScores(
+                    goal_focus=0, text_readability=0, pedagogical_clarity=0,
+                    example_concreteness=0, example_coherence=0, instructional_alignment=0,
+                )
+                reasoning = ModuleReasoning()
+                summary = ""
+                incomplete = True
+
+            evals.append(EvaluatedSegment(
+                segment_id=segment.segment_id,
+                heading=segment.heading,
+                text=segment.text,
+                segment_type=segment.segment_type,
+                scores=scores,
+                reasoning=reasoning,
+                summary=summary,
+                incomplete=incomplete,
+            ))
+        return evals
+
+    def _call_claude_module_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
+        logger.info(f"[Module Gate] Evaluating batch of {len(segments)} segments via Claude")
+        response = self.anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8192,
+            temperature=0.2,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            tools=[self._MODULE_EVAL_TOOL],
+            tool_choice={"type": "tool", "name": "submit_module_evaluations"},
+        )
+        tool_block = next(b for b in response.content if b.type == "tool_use")
+        data = tool_block.input["evaluations"]
+        return self._match_module_evaluations(data, segments)
+
+    def _call_gemini_module_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
+        logger.info(f"[Module Gate] Evaluating batch of {len(segments)} segments via Gemini")
+        prompt = system_prompt + "\n\n" + user_prompt
+        response = self.gemini_client.models.generate_content(
+            model=self.gemini_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                response_mime_type="application/json"
+            )
+        )
+        data = self._parse_json_result(response.text)
+        return self._match_module_evaluations(data, segments)
+
     def evaluate_batch(self, metadata: CourseMetadata, segments: List[Segment]) -> List[EvaluatedSegment]:
+        """MODULE GATE: Evaluate a batch of segments on the 6 Module rubrics.
+        Non-instructional segments are passed through with 0 scores and no summary.
+        Instructional segments get 6 scores + a content summary for the Course Gate.
+        """
         results = []
         instructional_segments = []
 
         for segment in segments:
             if segment.segment_type != "instructional":
-                logger.info(f"Bypassing LLM evaluation for non-instructional segment: {segment.segment_id} ({segment.segment_type})")
+                logger.info(f"Bypassing Module Gate for non-instructional segment: {segment.segment_id} ({segment.segment_type})")
                 results.append(EvaluatedSegment(
                     segment_id=segment.segment_id,
                     heading=segment.heading,
                     text=segment.text,
                     segment_type=segment.segment_type,
-                    scores=SectionScores(
-                        goal_focus=0, text_readability=0, pedagogical_clarity=0, prerequisite_alignment=0,
-                        fluidity_continuity=0, structural_usability=0, example_concreteness=0,
-                        example_coherence=0, business_relevance=0, instructional_alignment=0
+                    scores=ModuleScores(
+                        goal_focus=0, text_readability=0, pedagogical_clarity=0,
+                        example_concreteness=0, example_coherence=0, instructional_alignment=0,
                     ),
-                    reasoning=SectionReasoning(
-                        goal_focus_rationale="N/A", text_readability_rationale="N/A", pedagogical_clarity_rationale="N/A",
-                        prerequisite_alignment_rationale="N/A", fluidity_continuity_rationale="N/A", structural_usability_rationale="N/A",
-                        example_concreteness_rationale="N/A", example_coherence_rationale="N/A", business_relevance_rationale="N/A",
-                        instructional_alignment_rationale="N/A"
-                    )
+                    reasoning=ModuleReasoning(),
+                    summary="",
                 ))
             else:
                 instructional_segments.append(segment)
@@ -185,19 +316,18 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
         if not instructional_segments:
             return sorted(results, key=lambda x: x.segment_id)
 
-        system_prompt, user_prompt = self._build_batch_prompts(metadata, instructional_segments)
+        system_prompt, user_prompt = self._build_module_batch_prompts(metadata, instructional_segments)
 
-        # Evaluate using strict model selection (no cascading between Claude and Gemini mid-run)
         try:
             if self.anthropic_client:
                 evals = self._retry_call(
-                    lambda: self._call_claude_batch(system_prompt, user_prompt, instructional_segments),
+                    lambda: self._call_claude_module_batch(system_prompt, user_prompt, instructional_segments),
                     "Claude",
                     len(instructional_segments)
                 )
             elif self.gemini_client:
                 evals = self._retry_call(
-                    lambda: self._call_gemini_batch(system_prompt, user_prompt, instructional_segments),
+                    lambda: self._call_gemini_module_batch(system_prompt, user_prompt, instructional_segments),
                     "Gemini",
                     len(instructional_segments)
                 )
@@ -214,125 +344,127 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
         results.extend(evals)
         return sorted(results, key=lambda x: x.segment_id)
 
-    def _parse_json_result(self, text: str) -> list:
-        text = text.strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        return json.loads(text.strip())
+    # -------------------------------------------------------------------------
+    # COURSE GATE — Field Definitions
+    # -------------------------------------------------------------------------
 
-    _SCORE_FIELDS = [
-        "goal_focus", "text_readability", "pedagogical_clarity", "prerequisite_alignment",
-        "fluidity_continuity", "structural_usability", "example_concreteness",
-        "example_coherence", "business_relevance", "instructional_alignment",
+    _COURSE_SCORE_FIELDS = [
+        "prerequisite_alignment", "structural_usability",
+        "business_relevance", "fluidity_continuity",
     ]
-    _RATIONALE_FIELDS = [f"{f}_rationale" for f in _SCORE_FIELDS]
+    _COURSE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _COURSE_SCORE_FIELDS]
 
-    _EVAL_TOOL = {
-        "name": "submit_evaluations",
-        "description": "Submit the pedagogical evaluations for all provided segments.",
+    _COURSE_EVAL_TOOL = {
+        "name": "submit_course_evaluation",
+        "description": "Submit the holistic Course Gate evaluation for the entire course.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "evaluations": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "segment_id": {"type": "integer"},
-                            "scores": {
-                                "type": "object",
-                                "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _SCORE_FIELDS},
-                                "required": _SCORE_FIELDS,
-                            },
-                            "reasoning": {
-                                "type": "object",
-                                "properties": {f: {"type": "string"} for f in _RATIONALE_FIELDS},
-                                "required": _RATIONALE_FIELDS,
-                            },
-                        },
-                        "required": ["segment_id", "scores", "reasoning"],
-                    },
-                }
+                "scores": {
+                    "type": "object",
+                    "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _COURSE_SCORE_FIELDS},
+                    "required": _COURSE_SCORE_FIELDS,
+                },
+                "reasoning": {
+                    "type": "object",
+                    "properties": {f: {"type": "string"} for f in _COURSE_RATIONALE_FIELDS},
+                    "required": _COURSE_RATIONALE_FIELDS,
+                },
             },
-            "required": ["evaluations"],
+            "required": ["scores", "reasoning"],
         },
     }
 
-    def _make_incomplete_segment(self, segment: Segment) -> EvaluatedSegment:
-        return EvaluatedSegment(
-            segment_id=segment.segment_id,
-            heading=segment.heading,
-            text=segment.text,
-            segment_type=segment.segment_type,
-            scores=SectionScores(
-                goal_focus=0, text_readability=0, pedagogical_clarity=0,
-                prerequisite_alignment=0, fluidity_continuity=0, structural_usability=0,
-                example_concreteness=0, example_coherence=0, business_relevance=0,
-                instructional_alignment=0,
+    # -------------------------------------------------------------------------
+    # COURSE GATE — Prompt Builder
+    # -------------------------------------------------------------------------
+
+    def _build_course_prompts(
+        self,
+        metadata: CourseMetadata,
+        evaluated_segments: List[EvaluatedSegment],
+        non_instructional_segments: List[Segment],
+    ) -> Tuple[str, str]:
+        system_prompt = f"""
+You are an expert pedagogical evaluator. You are performing a COURSE-LEVEL assessment.
+Your job is to evaluate the overall structure, coherence and relevance of the course as a whole — NOT individual segments.
+
+COURSE METADATA:
+Title: {metadata.title}
+Author: {metadata.author or 'Unknown'}
+Target Audience: {metadata.target_audience}
+Level: {metadata.level or 'Not specified'}
+Prerequisites: {', '.join(metadata.prerequisites) if metadata.prerequisites else 'None specified'}
+Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
+Description: {metadata.description or 'Not provided'}
+
+COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
+{self.course_rubrics_yaml}
+"""
+
+        user_prompt = ""
+
+        # Include non-instructional sections (TOC, Preface) as course structure evidence
+        if non_instructional_segments:
+            user_prompt += "## Course Structure Sections (TOC, Preface, etc.)\n"
+            for seg in non_instructional_segments:
+                user_prompt += f"\n### {seg.heading or seg.segment_type.upper()} (ID {seg.segment_id})\n"
+                # Truncate long non-instructional segments to save tokens
+                text = seg.text
+                if len(text) > 1500:
+                    text = text[:1500] + "\n[... truncated for brevity ...]"
+                user_prompt += text + "\n"
+
+        # Include condensed module summaries as the sequential course narrative
+        instructional_with_summary = [
+            s for s in evaluated_segments
+            if s.segment_type == "instructional" and s.summary
+        ]
+        if instructional_with_summary:
+            user_prompt += "\n## Sequential Module Summaries (in order)\n"
+            user_prompt += "The following summaries represent each module/chapter of the course in order:\n\n"
+            for seg in sorted(instructional_with_summary, key=lambda x: x.segment_id):
+                heading_label = f"**{seg.heading}**" if seg.heading else f"Module {seg.segment_id}"
+                user_prompt += f"- {heading_label}: {seg.summary}\n"
+
+        user_prompt += "\n\nNow evaluate the course holistically on the 4 Course Gate rubrics."
+        return system_prompt.strip(), user_prompt.strip()
+
+    # -------------------------------------------------------------------------
+    # COURSE GATE — Execution
+    # -------------------------------------------------------------------------
+
+    def _make_incomplete_course_assessment(self) -> CourseAssessment:
+        return CourseAssessment(
+            scores=CourseScores(
+                prerequisite_alignment=0, structural_usability=0,
+                business_relevance=0, fluidity_continuity=0,
             ),
-            reasoning=SectionReasoning(),
-            incomplete=True,
+            reasoning=CourseReasoning(),
+            overall_score=0.0,
         )
 
-    def _match_evaluations(self, data: list, segments: List[Segment]) -> List[EvaluatedSegment]:
-        evals = []
-        data_by_id = {item["segment_id"]: item for item in data if "segment_id" in item}
-
-        for segment in segments:
-            if segment.segment_id not in data_by_id:
-                logger.warning(f"Missing evaluation for segment_id {segment.segment_id}; marking as incomplete.")
-                evals.append(self._make_incomplete_segment(segment))
-                continue
-
-            item = data_by_id[segment.segment_id]
-            try:
-                scores = SectionScores(**item.get("scores", {}))
-                reasoning = SectionReasoning(**item.get("reasoning", {}))
-                incomplete = False
-            except (ValidationError, Exception) as e:
-                logger.warning(f"Partial/invalid evaluation for segment {segment.segment_id}: {e}. Marking as incomplete.")
-                scores = SectionScores(
-                    goal_focus=0, text_readability=0, pedagogical_clarity=0,
-                    prerequisite_alignment=0, fluidity_continuity=0, structural_usability=0,
-                    example_concreteness=0, example_coherence=0, business_relevance=0,
-                    instructional_alignment=0,
-                )
-                reasoning = SectionReasoning()
-                incomplete = True
-
-            evals.append(EvaluatedSegment(
-                segment_id=segment.segment_id,
-                heading=segment.heading,
-                text=segment.text,
-                segment_type=segment.segment_type,
-                scores=scores,
-                reasoning=reasoning,
-                incomplete=incomplete,
-            ))
-        return evals
-
-    def _call_claude_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
-        logger.info(f"Evaluating batch of {len(segments)} segments via Claude")
+    def _call_claude_course(self, system_prompt: str, user_prompt: str) -> CourseAssessment:
+        logger.info("[Course Gate] Running capstone course evaluation via Claude")
         response = self.anthropic_client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=8192,
+            max_tokens=4096,
             temperature=0.2,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
-            tools=[self._EVAL_TOOL],
-            tool_choice={"type": "tool", "name": "submit_evaluations"},
+            tools=[self._COURSE_EVAL_TOOL],
+            tool_choice={"type": "tool", "name": "submit_course_evaluation"},
         )
-
         tool_block = next(b for b in response.content if b.type == "tool_use")
-        data = tool_block.input["evaluations"]
-        return self._match_evaluations(data, segments)
+        data = tool_block.input
+        scores = CourseScores(**data["scores"])
+        reasoning = CourseReasoning(**data["reasoning"])
+        score_values = [v for v in data["scores"].values() if isinstance(v, (int, float))]
+        overall = round(sum(score_values) / len(score_values), 2) if score_values else 0.0
+        return CourseAssessment(scores=scores, reasoning=reasoning, overall_score=overall)
 
-    def _call_gemini_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
-        logger.info(f"Evaluating batch of {len(segments)} segments via Gemini")
+    def _call_gemini_course(self, system_prompt: str, user_prompt: str) -> CourseAssessment:
+        logger.info("[Course Gate] Running capstone course evaluation via Gemini")
         prompt = system_prompt + "\n\n" + user_prompt
         response = self.gemini_client.models.generate_content(
             model=self.gemini_model,
@@ -342,6 +474,52 @@ Your response must be ONLY a valid JSON array of evaluation objects, one for eac
                 response_mime_type="application/json"
             )
         )
-
         data = self._parse_json_result(response.text)
-        return self._match_evaluations(data, segments)
+        # Gemini returns a JSON object (not array)
+        if isinstance(data, list):
+            data = data[0]
+        scores = CourseScores(**data["scores"])
+        reasoning = CourseReasoning(**data.get("reasoning", {}))
+        score_values = [v for v in data["scores"].values() if isinstance(v, (int, float))]
+        overall = round(sum(score_values) / len(score_values), 2) if score_values else 0.0
+        return CourseAssessment(scores=scores, reasoning=reasoning, overall_score=overall)
+
+    def evaluate_course(
+        self,
+        metadata: CourseMetadata,
+        evaluated_segments: List[EvaluatedSegment],
+        non_instructional_segments: Optional[List[Segment]] = None,
+    ) -> CourseAssessment:
+        """COURSE GATE: Single capstone call evaluating the full course on 4 holistic rubrics.
+
+        Args:
+            metadata: Extracted course metadata.
+            evaluated_segments: All EvaluatedSegment objects from the Module Gate (includes summaries).
+            non_instructional_segments: Raw Segment objects for TOC/Preface to give structural context.
+
+        Returns:
+            CourseAssessment with 4 scores, rationales, and an overall_score.
+        """
+        non_instructional_segments = non_instructional_segments or []
+        system_prompt, user_prompt = self._build_course_prompts(
+            metadata, evaluated_segments, non_instructional_segments
+        )
+
+        try:
+            if self.anthropic_client:
+                return self._retry_call(
+                    lambda: self._call_claude_course(system_prompt, user_prompt),
+                    "Claude",
+                    1  # Course Gate is always 1 call
+                )
+            elif self.gemini_client:
+                return self._retry_call(
+                    lambda: self._call_gemini_course(system_prompt, user_prompt),
+                    "Gemini",
+                    1
+                )
+            else:
+                raise ValueError("No API client configured.")
+        except Exception as e:
+            logger.error(f"[Course Gate] Course evaluation failed after all retries: {e}")
+            return self._make_incomplete_course_assessment()
