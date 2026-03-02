@@ -122,6 +122,60 @@ class LLMEvaluator:
             text = text[:-3]
         return json.loads(text.strip())
 
+    def _unwrap_gemini_list(self, raw) -> list:
+        """Normalize Gemini response to a flat list of evaluation dicts.
+
+        Gemini may return any of:
+        - [{...}, {...}]            → bare list (ideal case)
+        - {"evaluations": [{...}]} → wrapped under a known key
+        - {"submit_module_evaluations": {"evaluations": [...]}}  → double-wrapped
+        - a single dict {"segment_id": 1, ...} → wrap in list
+        """
+        if isinstance(raw, list):
+            return raw
+        if isinstance(raw, dict):
+            # Try to find the list under any key
+            for key in ("evaluations", "submit_module_evaluations", "items"):
+                if key in raw:
+                    val = raw[key]
+                    if isinstance(val, list):
+                        return val
+                    if isinstance(val, dict) and "evaluations" in val:
+                        return val["evaluations"]
+            # If the dict itself looks like a single evaluation (has segment_id), wrap it
+            if "segment_id" in raw:
+                return [raw]
+            # Last resort: return values() if they are dicts
+            vals = [v for v in raw.values() if isinstance(v, (list, dict))]
+            if vals and isinstance(vals[0], list):
+                return vals[0]
+        raise ValueError(f"Cannot unwrap Gemini list response. Got type={type(raw).__name__}: {str(raw)[:200]}")
+
+    def _unwrap_gemini_object(self, raw) -> dict:
+        """Normalize Gemini response to a single evaluation dict with 'scores' and 'reasoning'.
+
+        Gemini may return:
+        - {"scores": {...}, "reasoning": {...}}   → ideal
+        - [{"scores": {...}, ...}]               → wrapped in a list
+        - {"submit_course_evaluation": {"scores": {...}}} → double-wrapped
+        """
+        if isinstance(raw, list):
+            raw = raw[0]
+        if isinstance(raw, dict):
+            if "scores" in raw:
+                return raw
+            # Try to unwrap one level of nesting
+            for key in ("submit_course_evaluation", "evaluation", "result"):
+                if key in raw and isinstance(raw[key], dict):
+                    inner = raw[key]
+                    if "scores" in inner:
+                        return inner
+            # If only one dict value, drill in
+            dict_vals = {k: v for k, v in raw.items() if isinstance(v, dict)}
+            if len(dict_vals) == 1:
+                return next(iter(dict_vals.values()))
+        raise ValueError(f"Cannot unwrap Gemini object response. Got type={type(raw).__name__}: {str(raw)[:200]}")
+
     # -------------------------------------------------------------------------
     # MODULE GATE — Field Definitions
     # -------------------------------------------------------------------------
@@ -284,7 +338,12 @@ This summary will be used as context in a subsequent holistic course-level evalu
                 response_mime_type="application/json"
             )
         )
-        data = self._parse_json_result(response.text)
+        try:
+            raw = self._parse_json_result(response.text)
+            data = self._unwrap_gemini_list(raw)
+        except Exception as e:
+            logger.error(f"[Module Gate] Gemini JSON parse/unwrap failed: {e}. Raw response: {response.text[:500]}")
+            raise
         return self._match_module_evaluations(data, segments)
 
     def evaluate_batch(self, metadata: CourseMetadata, segments: List[Segment]) -> List[EvaluatedSegment]:
@@ -474,10 +533,12 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
                 response_mime_type="application/json"
             )
         )
-        data = self._parse_json_result(response.text)
-        # Gemini returns a JSON object (not array)
-        if isinstance(data, list):
-            data = data[0]
+        try:
+            raw = self._parse_json_result(response.text)
+            data = self._unwrap_gemini_object(raw)
+        except Exception as e:
+            logger.error(f"[Course Gate] Gemini JSON parse/unwrap failed: {e}. Raw response: {response.text[:500]}")
+            raise
         scores = CourseScores(**data["scores"])
         reasoning = CourseReasoning(**data.get("reasoning", {}))
         score_values = [v for v in data["scores"].values() if isinstance(v, (int, float))]
