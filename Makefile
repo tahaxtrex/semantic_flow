@@ -49,7 +49,7 @@ run:
 
 
 run-gemini:
-	@echo "Running SemanticFlow Evaluator (Gemini deterministic metadata)..."
+	@echo "Running SemanticFlow Evaluator (AI Metadata Extraction)..."
 	$(VENV_BIN)/python -m src.main --input data/courses --output data/output --config config/rubrics.yaml --ai --model gemini
 
 run-no-ai:
