@@ -1,0 +1,17 @@
+{
+  "title": "Foundations of Information Systems",
+  "author": "Mahesh S. Raisinghani",
+  "target_audience": "Introductory college students or beginners with no prior background",
+  "subject": "Information Systems",
+  "source": "firstpart.pdf",
+  "description": "Unknown",
+  "prerequisites": [
+    "No formal prerequisites required"
+  ],
+  "learning_outcomes": [],
+  "publisher": "OpenStax",
+  "year": "2025",
+  "isbn": "978-1-711472-95-9",
+  "level": "Introductory",
+  "contributing_authors": []
+}

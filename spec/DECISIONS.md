@@ -337,3 +337,64 @@ With the split of course vs. module assessment (ADR-016), we must decide how the
 - Perfectly isolates the holistic rubrics from the atomic ones in `models.py`.
 - Generates two completely distinct overall scores (`course_average_score` and `module_average_score`) to avoid polluting data.
 
+---
+
+## ADR-018: Tesseract OCR Fallback for Scanned PDFs
+
+**Date:** 2026-03-03
+**Status:** Accepted
+
+**Context:**
+Real-world course PDFs (e.g., scanned OpenStax textbooks) embed pages as images rather than native text. `pdfplumber` returns 0 words for such pages, causing the segmenter to silently produce a single unusable block. The pipeline needs to handle mixed-mode PDFs (some pages native, some scanned) without requiring the user to pre-process the file.
+
+**Options Considered:**
+1. *Reject scanned PDFs with a clear error:* Simple, but blocks valid research inputs.
+2. *Pre-processing step (ocrmypdf):* Clean, but requires users to run a separate command and store an intermediate file.
+3. *Per-page silent fallback to Tesseract:* Transparent, no extra steps, graceful degradation when tesseract is absent.
+
+**Decision:**
+Option 3. For each page, after `pdfplumber` extraction, if the word list is empty, `_ocr_page()` renders the page at 300 DPI via `pdf2image` (Poppler-backed) and runs `pytesseract.image_to_string()`. The result is appended to the current text block. OCR is a one-time lazy check: if `tesseract` binary is absent, a DEBUG message is logged and the page is skipped without crashing.
+
+**Consequences:**
+- System dependency: `tesseract-ocr` + `poppler-utils` must be installed (`sudo apt install tesseract-ocr poppler-utils`).
+- Python dependencies: `pytesseract>=0.3.10`, `pdf2image>=1.17.0` added to `requirements.txt`.
+- OCR text has no font metadata, so header detection does not apply; content is appended as body text within the current block.
+- Quality of OCR output depends on scan quality; clean 300 DPI scans are expected to produce usable evaluation input.
+
+**Linked Requirements:** FR-003, ADR-001
+
+---
+
+## ADR-019: Skip Course Gate When No Instructional Segments Exist
+
+**Date:** 2026-03-03
+**Status:** Accepted
+
+**Context:**
+When a PDF contains only frontmatter/copyright pages (or when all pages are unreadable scanned images with tesseract unavailable), the Module Gate produces zero instructional segments and zero content summaries. Previously, the Course Gate capstone call was still executed, passing only course metadata (title, description). Gemini would infer scores from the publisher name ("OpenStax = high quality") and produce misleadingly high holistic scores (e.g. 8.25/10).
+
+**Decision:**
+In `main.py`, before executing the Course Gate, check `has_instructional = any(s.segment_type == "instructional" for s in segments)`. If `False`, skip the LLM capstone call entirely, log a `WARNING`, and populate the `CourseAssessment` with `_make_incomplete_course_assessment()` (all zeros). This makes the output honest: if we cannot assess module content, we cannot assess course holism.
+
+**Consequences:**
+- Saves one Gemini API call per content-empty PDF.
+- Output is truthful: `course_gate.overall_score = 0.0` clearly signals no assessment was possible.
+- Human reviewers can see from `evaluation_meta.excluded_segments` and `instructional_segments_scored: 0` that the PDF was unreadable.
+
+---
+
+## ADR-020: Enforce Gemini Response Schema via `response_schema`
+
+**Date:** 2026-03-03
+**Status:** Accepted
+
+**Context:**
+Gemini's `application/json` response mode does not guarantee any specific JSON structure by default. Observed failure modes include: returning `{"evaluations": [...]}` instead of `[...]`, returning `{"rubric_scores": [{id, score, rationale}]}` instead of `{"scores": {...}, "reasoning": {...}}`, and omitting rationale fields entirely. While `_unwrap_gemini_list` / `_unwrap_gemini_object` provide post-hoc normalization, preventing malformed output upstream is preferable.
+
+**Decision:**
+Pass the existing Claude tool `input_schema` dict as `response_schema` in `types.GenerateContentConfig` for both Module Gate and Course Gate Gemini calls. This instructs the Gemini API to constrain its output to match the schema before returning. The `_unwrap_*` helpers are retained as a defense-in-depth layer.
+
+**Consequences:**
+- Fewer JSON parse/unwrap failures in practice.
+- Both Claude (tool-use) and Gemini (response_schema) now share the same schema definition — single source of truth.
+- If Gemini rejects a schema (e.g. unsupported field type), the error will surface as a structured API error rather than a silent malformed response.

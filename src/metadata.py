@@ -599,7 +599,7 @@ class MetadataIngestor:
                     if name_m:
                         found.append(name_m.group(1).strip())
             if found:
-                metadata.contributing_authors = found[:15]  # cap at 15
+                metadata.contributing_authors = found[:17]  # cap at 17
 
         # ── Subject ───────────────────────────────────────────────────────
         if metadata.subject == "Unknown":

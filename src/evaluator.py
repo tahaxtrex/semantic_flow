@@ -154,17 +154,29 @@ class LLMEvaluator:
     def _unwrap_gemini_object(self, raw) -> dict:
         """Normalize Gemini response to a single evaluation dict with 'scores' and 'reasoning'.
 
-        Gemini may return:
-        - {"scores": {...}, "reasoning": {...}}   → ideal
-        - [{"scores": {...}, ...}]               → wrapped in a list
-        - {"submit_course_evaluation": {"scores": {...}}} → double-wrapped
+        Gemini may return any of:
+        - {"scores": {...}, "reasoning": {...}}               → ideal
+        - [{"scores": {...}, ...}]                           → list-wrapped
+        - {"submit_course_evaluation": {"scores": {...}}}   → key-wrapped
+        - {"rubric_scores": [{"id": "x", "score": 7, "rationale": "..."}]} → list-of-rubric-objects
         """
         if isinstance(raw, list):
             raw = raw[0]
         if isinstance(raw, dict):
+            # Ideal case: has 'scores' key directly
             if "scores" in raw:
                 return raw
-            # Try to unwrap one level of nesting
+            # Gemini sometimes returns rubric_scores as a list of {id, score, rationale} objects
+            if "rubric_scores" in raw and isinstance(raw["rubric_scores"], list):
+                scores = {}
+                reasoning = {}
+                for item in raw["rubric_scores"]:
+                    if isinstance(item, dict) and "id" in item:
+                        rubric_id = item["id"]
+                        scores[rubric_id] = item.get("score", 0)
+                        reasoning[f"{rubric_id}_rationale"] = item.get("rationale", item.get("reasoning", ""))
+                return {"scores": scores, "reasoning": reasoning}
+            # Try to unwrap one level of nesting under known keys
             for key in ("submit_course_evaluation", "evaluation", "result"):
                 if key in raw and isinstance(raw[key], dict):
                     inner = raw[key]
@@ -335,7 +347,8 @@ This summary will be used as context in a subsequent holistic course-level evalu
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
-                response_mime_type="application/json"
+                response_mime_type="application/json",
+                response_schema=self._MODULE_EVAL_TOOL["input_schema"]
             )
         )
         try:
@@ -530,7 +543,8 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
-                response_mime_type="application/json"
+                response_mime_type="application/json",
+                response_schema=self._COURSE_EVAL_TOOL["input_schema"]
             )
         )
         try:

@@ -49,7 +49,7 @@ module_rubrics:
     name: "Example Concreteness"
     description: >
       Are examples concrete, relatable, and plausible representations
-      of real-world situations? Scenarios should be realistic and job-based.
+      of real-world situations? Scenarios should be realistic.
     weight: 1.0
     scoring_guide:
       low: "1-3: Abstract, contrived, or missing examples"
@@ -75,7 +75,7 @@ module_rubrics:
       objectives clear and effective within this segment?
     weight: 1.0
     scoring_guide:
-      low: "1-3: Outdated materials, unclear relationship between components"
+      low: "1-3: unclear relationship between components"
       mid: "4-6: Mostly current but some alignment gaps"
       high: "7-10: All materials aligned, current, and professionally presented"
 

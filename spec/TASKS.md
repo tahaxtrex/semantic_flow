@@ -92,3 +92,52 @@
 - [x] TASK-029: Make `metadata.py` independently executable as a standalone CLI tool.
   - Spec ref: FR-009, ADR-015
   - Notes: Add `if __name__ == "__main__"` block to `metadata.py`. Accept `--pdf`, `--metadata` (optional), and `--output` arguments. Output a human-reviewable JSON file that can be edited and fed back into the evaluator via `--metadata`.
+
+  # Restructuring Assessment into Two Gates
+
+## Current Understanding
+The user wants to divide the pedagogical evaluation into two distinct gates to better reflect real-world educational structures (Programs > Courses > Modules > Chapters).
+1. **Course Gate**: Assesses how well modules are structured, related, and overall course metadata.
+2. **Module Gate**: Assesses the actual content chapters (what people read).
+
+## Checklist
+- [x] Read [.ai/GEMINI.md](file:///home/xtrex/Documents/project/github/semantic_flow/.ai/GEMINI.md) to understand documentation standards.
+- [x] Read [config/rubrics.yaml](file:///home/xtrex/Documents/project/github/semantic_flow/config/rubrics.yaml) and assign existing rubrics to Course vs. Module gates.
+- [x] Analyze [src/evaluator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/evaluator.py) and [src/models.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/models.py) to see how rubrics are currently injected and parsed.
+- [x] Formulate 10 clarifying questions to prevent guessing.
+- [x] Write the 10 questions to [spec/QUESTIONS.md](file:///home/xtrex/Documents/project/github/semantic_flow/spec/QUESTIONS.md).
+- [x] Write initial architectural decisions to [spec/DECISIONS.md](file:///home/xtrex/Documents/project/github/semantic_flow/spec/DECISIONS.md).
+- [x] Write the proposed implementation plan in an artifact.
+- [x] Present the plan and questions to the user for review.
+- [x] Implement [config/rubrics.yaml](file:///home/xtrex/Documents/project/github/semantic_flow/config/rubrics.yaml) schema split.
+- [x] Implement [src/models.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/models.py) Two-Gate schema split (Course vs Module tracking).
+- [x] Rewrite [src/evaluator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/evaluator.py) `evaluate_batch` for Module Gate (incl. summaries).
+- [x] Write [src/evaluator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/evaluator.py) `evaluate_course` for capstone Course Gate.
+- [x] Rewrite [src/aggregator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/aggregator.py) to aggregate both scopes correctly.
+- [x] Update [src/main.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/main.py) pipeline orchestration to run both gates sequentially.
+
+## Phase: Pipeline Hardening & Scanned PDF Support
+- [x] TASK-030: Fix Gemini JSON response unwrapping for Module Gate and Course Gate.
+  - Spec ref: ADR-020
+  - Notes: Added `_unwrap_gemini_list` (normalizes wrapped `{"evaluations":[...]}` responses) and `_unwrap_gemini_object` (normalizes `{"rubric_scores":[{id,score}]}` and other shapes) to `evaluator.py`. Both gates log the raw Gemini response on parse failure.
+- [x] TASK-031: Enforce Gemini response structure via `response_schema`.
+  - Spec ref: ADR-020
+  - Notes: Pass `_MODULE_EVAL_TOOL["input_schema"]` and `_COURSE_EVAL_TOOL["input_schema"]` as `response_schema` in `types.GenerateContentConfig` for both Gemini callers. Prevents malformed JSON at the API level.
+- [x] TASK-032: Add copyright/license page detection to `segmenter.py`.
+  - Spec ref: ADR-001
+  - Notes: `_is_copyright_page(text)` checks keyword density (©, Creative Commons, ISBN, OpenStax, Kendall Hunt, etc.). 4+ hits → segment classified as `frontmatter`. Expanded `_FRONTMATTER_PATTERNS` with glossary, bibliography, list of figures, etc.
+- [x] TASK-033: Skip Course Gate when no instructional segments are present.
+  - Spec ref: ADR-019
+  - Notes: `has_instructional` guard in `main.py` before the Course Gate call. Zero-content PDFs get a WARNING + incomplete CourseAssessment instead of a fabricated score.
+- [x] TASK-034: Add Tesseract OCR fallback for scanned PDF pages.
+  - Spec ref: ADR-018
+  - Notes: `_check_ocr_available()` (lazy-cached) + `_ocr_page(pdf_path, page_index)` in `segmenter.py`. Per-page: if pdfplumber returns 0 words → render at 300 DPI via `pdf2image` → `pytesseract.image_to_string()`. Graceful no-op if tesseract binary absent. `requirements.txt` updated with `pytesseract` and `pdf2image`. System prereqs: `sudo apt install tesseract-ocr poppler-utils`.
+- [x] TASK-035: Allow `--input` to accept a direct `.pdf` file path.
+  - Spec ref: CON-002
+  - Notes: `main.py` now checks `input_path.is_file()` before falling back to directory glob. Enables `python -m src.main --input data/courses/foo.pdf ...` without scanning the whole folder.
+- [x] TASK-036: Add committed example output file for fork/onboarding reference.
+  - Spec ref: NFR-004
+  - Notes: `data/output/output.json` added as a representative mock of the pipeline's JSON schema. `.gitignore` updated with `!data/output/output.json` to keep it tracked despite the blanket `data/output/**` exclusion.
+- [x] TASK-037: Raise `contributing_authors` cap in `metadata.py` from 15 to 17.
+  - Spec ref: FR-001
+  - Notes: Accommodates OpenStax and other community-authored textbooks with larger contributor lists.

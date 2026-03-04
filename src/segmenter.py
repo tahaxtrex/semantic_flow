@@ -9,6 +9,49 @@ from src.models import Segment
 
 logger = logging.getLogger(__name__)
 
+# OCR availability flag — set on first import attempt
+_OCR_AVAILABLE: Optional[bool] = None
+
+def _check_ocr_available() -> bool:
+    """Check once whether tesseract + pdf2image are available."""
+    global _OCR_AVAILABLE
+    if _OCR_AVAILABLE is None:
+        try:
+            import pytesseract
+            import pdf2image
+            pytesseract.get_tesseract_version()  # raises if not installed
+            _OCR_AVAILABLE = True
+        except Exception:
+            _OCR_AVAILABLE = False
+    return _OCR_AVAILABLE
+
+def _ocr_page(pdf_path: Path, page_index: int) -> str:
+    """Render a PDF page to an image and extract text via Tesseract OCR.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        page_index: 0-based page index.
+
+    Returns:
+        Extracted plain text, or empty string on failure.
+    """
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+        images = convert_from_path(
+            str(pdf_path),
+            dpi=300,
+            first_page=page_index + 1,
+            last_page=page_index + 1,
+        )
+        if not images:
+            return ""
+        text = pytesseract.image_to_string(images[0], lang="eng")
+        return text.strip()
+    except Exception as e:
+        logger.warning(f"OCR failed for page {page_index + 1}: {e}")
+        return ""
+
 # Regex to replace CID artifact placeholders (critic.md Issue 9)
 _CID_RE = re.compile(r'\(cid:\d+\)')
 
@@ -28,8 +71,27 @@ _REFERENCE_TABLE_PATTERNS = [
     re.compile(r'\b(appendix|table of|reference table|index)\b', re.IGNORECASE),
 ]
 _FRONTMATTER_PATTERNS = [
-    re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication)\s*)$', re.IGNORECASE),
+    re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication|bibliography|glossary|index|appendix|abbreviations|list of figures|list of tables)\s*)$', re.IGNORECASE),
 ]
+
+# Heuristics to detect copyright / license pages by content density of legal keywords
+_COPYRIGHT_KEYWORDS = [
+    'creative commons', 'all rights reserved', 'isbn', 'doi:', 'published by',
+    'reproduced without', 'prior written consent',
+    'licensed under', 'licensing, please contact', 'rice university',
+    'openstax', 'kendall hunt', 'arnold ventures', 'chan zuckerberg',
+    'attribution', 'noncommercial',
+]
+
+def _is_copyright_page(text: str) -> bool:
+    """Return True if the text is predominantly copyright/legal boilerplate."""
+    lower = text.lower()
+    # Also count © symbol occurrences (works for ©2025 and © 2025)
+    symbol_hits = lower.count('©')
+    keyword_hits = sum(1 for kw in _COPYRIGHT_KEYWORDS if kw in lower)
+    total_hits = keyword_hits + (2 if symbol_hits >= 1 else 0)
+    # If 4+ copyright markers found, it's frontmatter
+    return total_hits >= 4
 
 
 class SmartSegmenter:
@@ -125,6 +187,10 @@ class SmartSegmenter:
             if pat.fullmatch(first_line):
                 return "frontmatter"
 
+        # Copyright / license pages (content-based heuristic)
+        if _is_copyright_page(text):
+            return "frontmatter"
+
         return "instructional"
 
     # ------------------------------------------------------------------
@@ -209,21 +275,43 @@ class SmartSegmenter:
                     all_sizes.extend([w['size'] for w in words if 'size' in w])
 
                 if not all_sizes:
-                    logger.warning(f"Could not detect text natively in {self.pdf_path.name}. Possibly scanned.")
-                    return [(None, "")], page_count
-
-                all_sizes.sort()
-                median_size = all_sizes[len(all_sizes) // 2]
-                header_threshold = median_size * 1.4
-                logger.info(f"Body median font size: {median_size:.1f}pt — chapter header threshold: {header_threshold:.1f}pt")
+                    logger.warning(f"Could not detect text natively in {self.pdf_path.name}. Will use OCR if available.")
+                    # Don't return early — let the per-page loop try OCR
+                    median_size = 10.0  # sensible default when no native text exists
+                    header_threshold = median_size * 1.4
+                else:
+                    all_sizes.sort()
+                    median_size = all_sizes[len(all_sizes) // 2]
+                    header_threshold = median_size * 1.4
+                    logger.info(f"Body median font size: {median_size:.1f}pt — chapter header threshold: {header_threshold:.1f}pt")
 
                 # 2. Extract and group lines per page
+                _ocr_warned = False
                 for page in pdf.pages:
                     W = float(page.width)
                     H = float(page.height)
 
                     # Crop to body region — strips running headers (top 10%) and footers (bottom 8%)
                     body = page.within_bbox((0, H * 0.10, W, H * 0.92))
+
+                    # --- OCR FALLBACK: if page has no native text, try tesseract ---
+                    raw_words_check = body.extract_words(extra_attrs=["size", "fontname"])
+                    if not raw_words_check:
+                        if _check_ocr_available():
+                            if not _ocr_warned:
+                                logger.info(f"[OCR] Scanned pages detected in {self.pdf_path.name} — using Tesseract OCR fallback.")
+                                _ocr_warned = True
+                            ocr_text = _ocr_page(self.pdf_path, page.page_number - 1)
+                            if ocr_text:
+                                # Strip common OCR noise: lines that are just digits (page numbers)
+                                clean_lines = [
+                                    ln for ln in ocr_text.splitlines()
+                                    if ln.strip() and not re.fullmatch(r'\d+', ln.strip())
+                                ]
+                                current_text_lines.extend(clean_lines)
+                        else:
+                            logger.debug(f"[OCR] Page {page.page_number} has no native text and tesseract is not available — skipping.")
+                        continue
 
                     # Detect tables in the body region; collect bounding boxes
                     table_bboxes = []

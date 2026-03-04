@@ -58,12 +58,12 @@ def main():
 
     args = parser.parse_args()
 
-    input_dir = Path(args.input)
     output_dir = Path(args.output)
     config_path = Path(args.config)
+    input_path = Path(args.input)
 
-    if not input_dir.exists():
-        print(f"Error: Input directory {input_dir} does not exist.")
+    if not input_path.exists():
+        print(f"Error: Input path {input_path} does not exist.")
         sys.exit(1)
 
     if not config_path.exists():
@@ -74,14 +74,18 @@ def main():
 
     logger = setup_logging(output_dir)
     logger.info("Starting SemanticFlow Pedagogical Evaluator")
-    logger.info(f"Input directory: {input_dir}")
+    logger.info(f"Input: {input_path}")
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Config path: {config_path}")
 
-    pdfs = list(input_dir.glob("*.pdf"))
-    if not pdfs:
-        logger.warning(f"No PDFs found in {input_dir}")
-        sys.exit(0)
+    # Accept --input as either a directory or a single .pdf file
+    if input_path.is_file() and input_path.suffix.lower() == ".pdf":
+        pdfs = [input_path]
+    else:
+        pdfs = sorted(input_path.glob("*.pdf"))
+        if not pdfs:
+            logger.warning(f"No PDFs found in {input_path}")
+            sys.exit(0)
 
     logger.info(f"Found {len(pdfs)} PDF(s) to process.")
 
@@ -138,13 +142,22 @@ def main():
                 evaluated_segments.extend(eval_batch)
 
             # Step 4: Course Gate — single capstone call (4 holistic rubrics)
-            logger.info("Step 4/5: Course Gate Evaluation (capstone)")
+            # Skip if no instructional segments exist: scoring from metadata alone is misleading.
+            has_instructional = any(s.segment_type == "instructional" for s in segments)
             non_instructional_raw = [s for s in segments if s.segment_type != "instructional"]
-            course_assessment = evaluator.evaluate_course(
-                metadata=metadata,
-                evaluated_segments=evaluated_segments,
-                non_instructional_segments=non_instructional_raw,
-            )
+            if not has_instructional:
+                logger.warning(
+                    "Step 4/5: Course Gate skipped — no instructional segments found. "
+                    "Course Gate requires module content summaries to give meaningful scores."
+                )
+                course_assessment = evaluator._make_incomplete_course_assessment()
+            else:
+                logger.info("Step 4/5: Course Gate Evaluation (capstone)")
+                course_assessment = evaluator.evaluate_course(
+                    metadata=metadata,
+                    evaluated_segments=evaluated_segments,
+                    non_instructional_segments=non_instructional_raw,
+                )
 
             # Step 5: Aggregate & Export
             logger.info("Step 5/5: Aggregation and Export")

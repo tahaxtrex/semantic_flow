@@ -196,3 +196,29 @@ Corrected Split:
 
 **Question:** If "Prerequisite Alignment" is moved completely to the Course Gate, can the Module Gate safely ignore prerequisites, saving significant prompt tokens per chunk?
 **Answer:** Yes.
+
+## Phase 2: Pipeline Hardening & Scanned PDF Support
+
+## Q-024: OCR for Scanned PDFs
+**Phase:** Pipeline Hardening
+**Date:** 2026-03-03
+**Status:** Answered
+
+**Question:** Some course PDFs (e.g., scanned textbooks) contain page content as embedded images, not native text. pdfplumber returns 0 words for these pages. Should the segmenter fall back to OCR, or reject such PDFs with an error?
+**Answer:** Add a silent per-page OCR fallback using Tesseract (via `pytesseract` + `pdf2image`). If tesseract is absent, skip the page gracefully and log a DEBUG message. No crash, no mandatory pre-processing step for users. System prereq: `sudo apt install tesseract-ocr poppler-utils`.
+
+## Q-025: Course Gate with No Instructional Content
+**Phase:** Pipeline Hardening
+**Date:** 2026-03-03
+**Status:** Answered
+
+**Question:** When a PDF contains only frontmatter/copyright pages and produces zero instructional segments, should the Course Gate still run (with only metadata as input)?
+**Answer:** No. Scoring a course holistically from only its title and description produces misleadingly high scores (the LLM infers quality from publisher reputation, not actual content). The Course Gate should be skipped entirely, with all scores set to 0, and a clear WARNING logged.
+
+## Q-026: Classic OCR vs AI-based OCR
+**Phase:** Pipeline Hardening
+**Date:** 2026-03-03
+**Status:** Answered
+
+**Question:** Should scanned PDF text extraction use classic Tesseract OCR or an AI vision model (e.g., Gemini multimodal)?
+**Answer:** Classic Tesseract. It is deterministic, reproducible, free, and sufficient for clean 300 DPI textbook scans. AI LLM budget should be reserved exclusively for the evaluation gates where judgment is required.

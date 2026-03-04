@@ -1,3 +1,26 @@
+## 2026-03-04 — Minor Refinements: Metadata Cap, Example Output & .gitignore
+**Type:** Minor Tweak / Developer Experience
+**What changed:**
+- `src/metadata.py`: Raised `contributing_authors` cap from 15 to 17 — accommodates textbooks with larger author/contributor lists (e.g. OpenStax community books).
+- `data/output/output.json`: Added a committed example output file showing the expected JSON schema produced by the pipeline (`module_gate`, `course_gate`, `segments` with per-rubric scores, summaries, and rationales). Serves as a reference for consumers of the evaluation output.
+- `data/output/.gitkeep`: Updated to reference `output.json` to make the example file's purpose explicit.
+- `.gitignore`: Added `!data/output/output.json` exception rule so the example output file is tracked in git despite the blanket `data/output/**` ignore pattern.
+**Why it changed:** Users forking the repo need a concrete example of what the pipeline produces. The `.gitignore` exception ensures the example is always present in the repo without committing real evaluation artefacts.
+**Impact:** No functional change to the evaluation pipeline.
+
+## 2026-03-03 — Pipeline Hardening: OCR Fallback, Scanned PDF Support & Gemini Schema Enforcement
+**Type:** Bug Fix / Feature Addition
+**What changed:**
+- `src/segmenter.py`: Added OCR fallback (`_check_ocr_available`, `_ocr_page`) using `pytesseract` + `pdf2image`. When pdfplumber returns 0 words for a page (scanned image), the page is rendered at 300 DPI and Tesseract is invoked automatically. Graceful no-op if tesseract is not installed. Also expanded copyright/license page detection (`_is_copyright_page`) with keyword density heuristic — pages with 4+ legal markers (©, Creative Commons, ISBN, OpenStax…) are classified as `frontmatter`.
+- `src/evaluator.py`: Fixed two Gemini JSON parsing bugs — added `_unwrap_gemini_list` and `_unwrap_gemini_object` helpers to normalize all Gemini response shapes (bare array, `{"evaluations":[...]}` wrapping, `{"rubric_scores":[{id,score}]}` list-of-objects, etc.). Added `response_schema` to `GenerateContentConfig` for both Module Gate and Course Gate Gemini calls to enforce strict JSON compliance upstream.
+- `src/main.py`: Course Gate is now skipped when no instructional segments are found — avoids meaningless scores based purely on metadata title/description. An incomplete `CourseAssessment` (all zeros) is used instead, with a WARNING log. Also fixed: `--input` now accepts a direct `.pdf` file path in addition to a directory.
+- `requirements.txt`: Added `pytesseract>=0.3.10` and `pdf2image>=1.17.0`.
+**Why it changed:** Real-world course PDFs (e.g. scanned OpenStax textbooks) are image-based from page 6 onwards. The pipeline was silently returning a single frontmatter segment with all-zero scores, misrepresenting the course. Gemini's non-deterministic JSON shapes also required robust unwrapping and schema enforcement.
+**Impact:**
+- Scanned PDFs now produce real segmented, evaluated output (requires `sudo apt install tesseract-ocr poppler-utils`).
+- Pipeline is more honest: no-content PDFs emit a clear warning instead of inflated Course Gate scores.
+- Gemini evaluations are structurally guaranteed via `response_schema`.
+
 ## 2026-03-02 — Project Scoping: Two-Gate Assessment Architecture
 **Type:** Architecture Redesign / Scope change
 **What changed:** 
