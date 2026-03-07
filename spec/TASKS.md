@@ -141,3 +141,25 @@ The user wants to divide the pedagogical evaluation into two distinct gates to b
 - [x] TASK-037: Raise `contributing_authors` cap in `metadata.py` from 15 to 17.
   - Spec ref: FR-001
   - Notes: Accommodates OpenStax and other community-authored textbooks with larger contributor lists.
+- [x] TASK-038: Fix `tests/test_aggregator.py` to match current Two-Gate API.
+  - Spec ref: ADR-016, ADR-026
+  - Notes: Rewrote test file to import `ModuleScores`/`ModuleReasoning` (replacing stale `SectionScores`/`SectionReasoning`), added required `CourseAssessment` argument to `aggregate()` calls, and expanded test coverage to 4 tests: weighted average, non-instructional exclusion, course gate passthrough, and empty segment edge case.
+- [x] TASK-039: Add Chain-of-Thought scoring procedure to Module Gate system prompt.
+  - Spec ref: FR-005, ADR-021
+  - Notes: Added `SCORING PROCEDURE` block in `_build_module_batch_prompts()` instructing the LLM to identify specific textual evidence and reason above/below midpoint threshold per rubric before committing a score. Fixes CRITIC_REPORT Issue #5 with zero schema or cost changes.
+
+- [x] TASK-040: Add focused AI extraction pass for learning_outcomes and prerequisites.
+  - Spec ref: ADR-022
+  - Notes: Added `_LIST_FIELDS_SYSTEM_PROMPT` constant and `_ai_extract_list_fields()` method to `MetadataIngestor` in `metadata.py`. Triggers automatically after regex pass when either list field is empty. Uses the focused prompt enumerating all heading synonyms (Objectives, Goals, Must Knows, What You Will Learn, etc.). Reuses Claude→Gemini fallback; silent skip if no API keys available.
+- [x] TASK-041: Add TOC-based segmentation as the primary segmentation strategy.
+  - Spec ref: ADR-023
+  - Notes: Added `_extract_toc()` and `_flatten_outline()` methods to `SmartSegmenter` in `segmenter.py`. `segment()` now tries TOC extraction first (requires ≥2 outline entries); falls back to `_extract_blocks_with_headers()` if no usable TOC found. TOC path applies same body-crop, CID, table, figure, and code-block processing as the heuristic path, plus per-page OCR fallback for scanned PDFs.
+- [x] TASK-042: Add AssessmentTree structured output model.
+  - Spec ref: ADR-024
+  - Notes: Added `RubricResult`, `GateReport`, and `AssessmentTree` Pydantic models to `models.py`. Added `assessment: AssessmentTree` field to `CourseEvaluation`. Old flat `module_gate` dict retained for backwards compatibility.
+- [x] TASK-043: Populate AssessmentTree in ScoreAggregator.
+  - Spec ref: ADR-024
+  - Notes: Added `_build_assessment_tree()` method to `ScoreAggregator` in `aggregator.py`. Populates module gate rubrics with weighted-average scores and the longest rationale found across scored segments. Populates course gate rubrics directly from `CourseAssessment.scores` and `.reasoning`.
+- [x] TASK-044: Expand test_aggregator.py with AssessmentTree tests.
+  - Spec ref: ADR-024
+  - Notes: Added 3 new tests (tests 8-10): `test_assessment_tree_structure`, `test_assessment_tree_module_scores_match_flat_dict`, `test_assessment_tree_course_scores_match_assessment`. Total test count: 45/45 passing.

@@ -78,11 +78,48 @@ class CourseAssessment(BaseModel):
     overall_score: float
 
 
+# --- TREE-STRUCTURED ASSESSMENT OUTPUT (ADR-024) ---
+
+class RubricResult(BaseModel):
+    """A single rubric's score and rationale, used in the assessment tree."""
+    score: float
+    rationale: str = ""
+
+
+class GateReport(BaseModel):
+    """Aggregated result for one evaluation gate (Module or Course).
+
+    overall_score is the simple mean of all rubric scores within the gate.
+    rubrics maps each rubric name to its RubricResult (weighted average for
+    the Module Gate; direct score for the Course Gate).
+    """
+    overall_score: float
+    rubrics: Dict[str, RubricResult]
+
+
+class AssessmentTree(BaseModel):
+    """Light tree-structured view of the full evaluation (ADR-024).
+
+    Provides a human-readable, hierarchical summary of both gate results:
+      assessment
+      ├── module_gate  (weighted average across segments)
+      │   ├── overall_score
+      │   └── rubrics: {goal_focus: {score, rationale}, ...}
+      └── course_gate  (single holistic evaluation)
+          ├── overall_score
+          └── rubrics: {prerequisite_alignment: {score, rationale}, ...}
+    """
+    module_gate: GateReport
+    course_gate: GateReport
+
+
 # --- TOP-LEVEL OUTPUT SCHEMA ---
 
 class CourseEvaluation(BaseModel):
     course_metadata: CourseMetadata
-    module_gate: Dict[str, Any]       # overall_score + per-dimension averages
-    course_gate: CourseAssessment     # single holistic course evaluation
-    segments: List[EvaluatedSegment]  # full segment data (text + module scores)
+    assessment: AssessmentTree          # ADR-024 tree view (primary)
+    module_gate: Dict[str, Any]         # flat dict kept for backwards compat
+    course_gate: CourseAssessment       # single holistic course evaluation
+    segments: List[EvaluatedSegment]    # full segment data (text + module scores)
     evaluation_meta: Dict[str, Any]
+

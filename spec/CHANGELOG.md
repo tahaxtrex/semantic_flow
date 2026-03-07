@@ -1,4 +1,46 @@
+## 2026-03-06 — Three-Feature Extension: AI Metadata, TOC Segmentation, Tree Output
+
+**Type:** Feature Addition (x2) + Refinement (x1)
+
+**What changed:**
+- `src/metadata.py`: Added `_LIST_FIELDS_SYSTEM_PROMPT` and `_ai_extract_list_fields()`. Auto-triggers an AI pass after the regex stage to extract `learning_outcomes` and `prerequisites` under any heading name.
+- `src/segmenter.py`: Added `_extract_toc()` and `_flatten_outline()`. `segment()` now uses the PDF bookmark outline first; falls back to font-heuristic. Chapters precisely delimited.
+- `src/models.py`: Added `RubricResult`, `GateReport`, `AssessmentTree`. `CourseEvaluation` gains `assessment: AssessmentTree`.
+- `src/aggregator.py`: Added `_build_assessment_tree()` populating the full tree at aggregation time.
+- `tests/test_aggregator.py`: 3 new AssessmentTree tests. Suite: 45/45 passing.
+- `spec/DECISIONS.md`: ADR-022, ADR-023, ADR-024 appended.
+- `spec/TASKS.md`: TASK-040 through TASK-044 added (all complete).
+
+**Why it changed:**
+Prerequisites and learning outcomes were missed when PDFs used non-standard headings. TOC-based segmentation prevents chapters being split at wrong boundaries. The tree output makes assessment results human-readable with a clear rubric hierarchy.
+
+**Affected artifacts:**
+- ADR-022, ADR-023, ADR-024 -> New
+- TASK-040 through TASK-044 -> Complete
+
+## 2026-03-06 — Test Suite Fix & Chain-of-Thought Module Gate Prompting
+
+**Type:** Bug Fix / Accuracy Improvement
+
+**What changed:**
+- `tests/test_aggregator.py`: Rewrote entirely. Updated imports from stale `SectionScores`/`SectionReasoning` to `ModuleScores`/`ModuleReasoning`. Updated `aggregate()` call to include required `course_assessment` argument. Expanded from 1 broken test to 4 comprehensive tests covering weighted averages, non-instructional segment exclusion, course gate passthrough, and empty segment edge cases.
+- `src/evaluator.py`: Added `SCORING PROCEDURE` Chain-of-Thought block to the Module Gate system prompt in `_build_module_batch_prompts()`. For each rubric, the LLM is guided to identify specific textual evidence, reason above/below the midpoint, then finalise the score — before populating the rationale. No schema or API call count changes.
+- `spec/DECISIONS.md`: Added ADR-021 (Chain-of-Thought scoring procedure).
+- `spec/TASKS.md`: Added TASK-038 and TASK-039 (both complete).
+- `spec/CRITIC_REPORT.md`: Marked Issue #5 (Output Overload) as [FIXED].
+
+**Why it changed:**
+- `test_aggregator.py` was broken by the Two-Gate refactor (TASK-038). The test suite failed to collect, masking any regressions.
+- CRITIC_REPORT Issue #5 (zero-shot cognitive overload) was the last unfixed issue. A CoT prompt injection resolves it without splitting API calls or adding cost.
+
+**Affected artifacts:**
+- TASK-038 → Complete
+- TASK-039 → Complete
+- ADR-021 → New
+- CRITIC_REPORT Issue #5 → [FIXED]
+
 ## 2026-03-04 — Minor Refinements: Metadata Cap, Example Output & .gitignore
+
 **Type:** Minor Tweak / Developer Experience
 **What changed:**
 - `src/metadata.py`: Raised `contributing_authors` cap from 15 to 17 — accommodates textbooks with larger author/contributor lists (e.g. OpenStax community books).

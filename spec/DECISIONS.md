@@ -398,3 +398,112 @@ Pass the existing Claude tool `input_schema` dict as `response_schema` in `types
 - Fewer JSON parse/unwrap failures in practice.
 - Both Claude (tool-use) and Gemini (response_schema) now share the same schema definition — single source of truth.
 - If Gemini rejects a schema (e.g. unsupported field type), the error will surface as a structured API error rather than a silent malformed response.
+
+---
+
+## ADR-021: Chain-of-Thought Scoring Procedure in Module Gate Prompt
+
+**Date:** 2026-03-06
+**Status:** Accepted
+
+**Context:**
+CRITIC_REPORT Issue #5 identified that the Module Gate's zero-shot prompting approach (asking the LLM to simultaneously evaluate all 6 rubrics) caused regression-to-the-mean (scores clustering around 5–6) and hallucinated rationales.
+
+**Options Considered:**
+1. *Split into two separate API calls (structural vs content rubrics):* Eliminates cognitive overload entirely but doubles the API call count per batch, significantly increasing cost and latency. Conflicts with ADR-011 (batching philosophy).
+2. *Chain-of-Thought (CoT) SCORING PROCEDURE injection:* Add a step-by-step reasoning instruction to the existing system prompt that guides the LLM to first identify specific textual evidence and reason about the midpoint threshold before committing a score. Zero additional API cost.
+
+**Decision:**
+Option 2. A `SCORING PROCEDURE` block was added to `_build_module_batch_prompts()` in `evaluator.py`. For each rubric, the LLM is instructed to: (1) identify specific textual evidence relevant to the rubric, (2) reason whether the score should be above or below the midpoint (5), then (3) finalise the score and rationale. The output schema, API call structure, and batch size are unchanged.
+
+**Consequences:**
+- Scores are expected to be more discriminating and less clustered around the midpoint.
+- Rationales are expected to reference specific evidence from the segment text.
+- No increase in API cost or latency.
+
+**Linked Requirements:** FR-005, ADR-011
+
+
+---
+
+## ADR-022: Focused AI Extraction for Learning Outcomes & Prerequisites
+
+**Date:** 2026-03-06
+**Status:** Accepted
+
+**Context:**
+The regex-based extractor in `metadata.py` reliably finds fields like title and author but frequently misses `learning_outcomes` and `prerequisites`. These fields are critical for the Course Gate's `prerequisite_alignment` rubric yet are named inconsistently in PDFs ("Objectives", "Goals", "Must Knows", "What You Will Learn", etc.). This gap directly degrades evaluation accuracy (FR-001, Q-001).
+
+**Options Considered:**
+1. *Expand regex patterns:* Cannot enumerate all possible heading synonyms exhaustively across publishers.
+2. *Require structured metadata file:* Shifts burden to user; contradicts the goal of fully automated extraction.
+3. *Targeted AI pass always active for list fields:* Minimal prompt (~300 tokens) that enumerates all heading synonyms. Runs only when fields are empty after regex pass.
+
+**Decision:**
+Option 3. Add `_ai_extract_list_fields()` to `MetadataIngestor`, triggered automatically after the regex pass whenever `learning_outcomes` or `prerequisites` remain empty. Uses `_LIST_FIELDS_SYSTEM_PROMPT` which explicitly lists every known heading synonym. Reuses the existing Claude→Gemini fallback hierarchy. Silent skip if no API keys configured.
+
+**Consequences:**
+- One additional small API call per PDF (only when needed). Cost: ~500 tokens.
+- Fields are now reliably extracted regardless of heading style used by the publisher.
+- Does not overwrite fields already populated by the regex pass.
+
+**Linked Requirements:** FR-001, Q-001, Q-013
+
+---
+
+## ADR-023: TOC-Based Segmentation (Three-Tier Hierarchy)
+
+**Date:** 2026-03-06
+**Status:** Accepted
+**Amends:** ADR-001 (adds a new first tier above the hybrid strategy)
+
+**Context:**
+The existing font-heuristic segmenter (`_extract_blocks_with_headers`) treats every font-size jump as a potential chapter boundary. This creates two problems: (1) sub-headings and callout boxes generate spurious new segments, splitting chapters mid-content; (2) chapters can be merged or cut at wrong boundaries. Most well-structured PDFs contain an embedded bookmark outline (TOC) that encodes the exact chapter structure with page numbers. This is the authoritative source.
+
+**Options Considered:**
+1. *Improve font-heuristic thresholds:* Fragile; publisher-specific tuning required.
+2. *Use only TOC:* Falls back to nothing on PDFs without outlines (scanned, older textbooks).
+3. *TOC-first with font-heuristic fallback:* Accurate for well-structured PDFs; fully backwards-compatible.
+
+**Decision:**
+Option 3. `segment()` now calls `_extract_toc()` first. If the PDF outline has ≥2 entries, page ranges between consecutive TOC entries are used to extract text for each chapter segment. Falls back to `_extract_blocks_with_headers()` if no usable outline is found. Both paths feed the same `_merge_short_blocks` → `_chunk_text` → `_classify_segment` pipeline. `_flatten_outline()` handles nested/recursive PDF outlines and normalizes 0-based/1-based page numbering. The TOC path applies the same body crop, CID replacement, table annotation, figure annotation, OCR fallback, and code-block markers as the heuristic path.
+
+**Consequences:**
+- Chapters are now accurately delimited for PDFs with embedded outlines.
+- Text is more readable: each segment is a complete, self-contained chapter.
+- No regression for PDFs without outlines (fallback is unchanged).
+- `_extract_toc()` is a pure read-only method that does not alter any state.
+
+**Linked Requirements:** FR-003, FR-004, Q-002
+
+---
+
+## ADR-024: Tree-Structured Assessment Output
+
+**Date:** 2026-03-06
+**Status:** Accepted
+
+**Context:**
+The current `module_gate: Dict[str, Any]` flat dict in `CourseEvaluation` does not express the hierarchy of scores. Both gate results (module and course) needed a structured, human-readable format that clearly shows overall gate scores alongside per-rubric breakdowns, including the rationale for each rubric. The previous response to Q-017 specified independent overall scores per gate; this ADR operationalises the shape of those scores in the output JSON.
+
+**Options Considered:**
+1. *Flat dict (current):* No hierarchy; rationales not included.
+2. *Replace flat dict with tree:* Breaking change. Downstream consumers that parse `module_gate.goal_focus` directly would need updating.
+3. *Add tree alongside flat dict:* Backwards compatible. Old field `module_gate` retained; new field `assessment` added.
+
+**Decision:**
+Option 3. Added three new Pydantic models to `models.py`:
+- `RubricResult(score: float, rationale: str)` — leaf node.
+- `GateReport(overall_score: float, rubrics: Dict[str, RubricResult])` — one gate.
+- `AssessmentTree(module_gate: GateReport, course_gate: GateReport)` — root.
+
+`CourseEvaluation` gains `assessment: AssessmentTree` as its primary structured output. The flat `module_gate: Dict[str, Any]` is retained for backwards compatibility.
+
+`ScoreAggregator._build_assessment_tree()` populates the tree. Module gate rubric rationales use the longest single rationale from any scored segment for each dimension (surfaces most substantiated justification). Course gate rubric scores and rationales come directly from `CourseAssessment`.
+
+**Consequences:**
+- Output JSON now has a clear tree structure for easy human reading and downstream parsing.
+- The `assessment` field is the canonical output; `module_gate` is a backwards-compat alias.
+- Three new Pydantic models; no changes to evaluation logic.
+
+**Linked Requirements:** Q-017, Q-010

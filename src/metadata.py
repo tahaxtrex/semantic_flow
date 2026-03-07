@@ -37,32 +37,32 @@ _AUTHOR_PATTERNS = [
 _AUDIENCE_PATTERNS = [
     re.compile(r'(?:intended for|suitable for|designed for|aimed at|for students|'
                r'for\s+\w+\s+(?:students|developers|programmers)|'
-               r'appeals to|written for|targeted(?:\s+at)?)\s+([^.]{10,150})', re.IGNORECASE),
+               r'appeals to|written for|targeted(?:\s+at)?)\s+([^.\n]{10,150})', re.IGNORECASE),
     # "This (book|text|course) is (an|a) [adjective] [noun] for [audience]"
     re.compile(r'this\s+(?:book|text|textbook|course|resource)\s+is\s+(?:an?\s+)?'
-               r'[\w\s]{0,30}(?:for|to)\s+([^.]{10,120})', re.IGNORECASE),
+               r'[\w\s]{0,30}(?:for|to)\s+([^.\n]{10,120})', re.IGNORECASE),
     # "introductory / undergraduate / graduate" level signals
-    re.compile(r'\b(introductory|undergraduate|graduate|advanced|beginner|intermediate)\s+'
-               r'(?:course|text|students?|level)[^.]{0,80}', re.IGNORECASE),
+    re.compile(r'(\b(?:introductory|undergraduate|graduate|advanced|beginner|intermediate)\s+'
+               r'(?:course|text|students?|level)[^.\n]{0,80})', re.IGNORECASE),
 ]
 
 _PREREQ_PATTERNS = [
     re.compile(r'(?:prerequisite[s]?|prior knowledge|prior experience|'
                r'assumes|assumes knowledge|requires|background in|'
-               r'familiarity with|should (?:know|have|be familiar))\s*[:\-]?\s*([^.]{10,150})',
+               r'familiarity with|should (?:know|have|be familiar))\s*[:\-]?\s*([^.\n]{10,150})',
                re.IGNORECASE),
-    # "Students who have completed X" 
-    re.compile(r'students?\s+who\s+(?:have|has)\s+(?:completed|taken|studied)\s+([^.]{5,100})',
+    # "Students who have completed X"
+    re.compile(r'students?\s+who\s+(?:have|has)\s+(?:completed|taken|studied)\s+([^.\n]{5,100})',
                re.IGNORECASE),
     # "no prerequisites" — explicitly capture that too
-    re.compile(r'(no\s+(?:formal\s+)?prerequisite[s]?[^.]{0,60})', re.IGNORECASE),
+    re.compile(r'(no\s+(?:formal\s+)?prerequisite[s]?[^.\n]{0,60})', re.IGNORECASE),
 ]
 
 _OUTCOME_PATTERNS = [
     re.compile(r'(?:you will (?:learn|be able to)|by the end|after completing|'
                r'learning objectives?|upon completion|objectives?\s*[:\-]|'
                r'students?\s+will\s+(?:be able to|learn|understand|'
-               r'develop|gain|demonstrate))\s*[:\-]?\s*([^.]{10,250})',
+               r'develop|gain|demonstrate))\s*[:\-]?\s*([^.\n]{10,250})',
                re.IGNORECASE),
 ]
 
@@ -155,6 +155,42 @@ Required JSON schema:
 }
 """.strip()
 
+
+# ── Focused prompt for learning outcomes + prerequisites only ─────────────────
+# Used by the always-active list-field AI pass (ADR-022), regardless of use_ai flag.
+
+_LIST_FIELDS_SYSTEM_PROMPT = """
+You are a course metadata specialist. You will be given raw text from a course textbook
+or PDF. Your ONLY task is to extract two fields:
+
+1. learning_outcomes — what students will know or be able to do after completing this
+   course or chapter. These may appear under any of these headings:
+   "Learning Objectives", "Learning Outcomes", "Course Objectives", "Objectives",
+   "Goals", "Course Goals", "What You Will Learn", "By the end of this chapter/section",
+   "Upon completion", "After reading this", "Students will be able to", "You will be able to",
+   "Skills you will gain", "Expected outcomes", or any similar phrasing.
+
+2. prerequisites — what prior knowledge, skills, or courses are required. These may appear
+   under any of these headings:
+   "Prerequisites", "Prior Knowledge", "Prior Experience", "Must Knows", "Must-Knows",
+   "Background Required", "Assumed Knowledge", "Required Background", "Before you start",
+   "What you need to know", "Prerequisite Knowledge", or any similar phrasing.
+   Also capture explicit "no prerequisites" or "no prior experience required" statements
+   as a list item.
+
+Rules:
+- Return ONLY valid JSON. No markdown, no commentary.
+- Each item in the lists must be a complete, standalone sentence or phrase.
+- If a section has a bulleted/numbered list, each bullet = one item.
+- If a field cannot be found ANYWHERE in the text, return an empty array [].
+- DO NOT invent or hallucinate items. Only extract what is explicitly stated.
+
+Required JSON schema:
+{
+  "learning_outcomes": [string],
+  "prerequisites": [string]
+}
+""".strip()
 
 class AIMetadataExtractor:
     """
@@ -383,6 +419,20 @@ class MetadataIngestor:
                 cover_text = self._extract_cover_text(pdf)       # pages 0-2
                 front_text = self._extract_front_matter(pdf)     # pages 0-14 / 6000 words
 
+                # ── Fallback: pdftotext (Poppler) for CIDFont/Type3 PDFs ───
+                # Some PDFs render glyphs as path drawings with no char objects
+                # (e.g. certain OpenStax LaTeX→PDF pipelines). pdfplumber returns
+                # 0 words; Poppler's pdftotext handles the font mapping correctly.
+                if not front_text.strip():
+                    poppler_text = self._pdftotext_fallback(pdf_path, max_pages=15)
+                    if poppler_text:
+                        logger.info(
+                            f"pdfplumber returned no text for '{pdf_path.name}'. "
+                            "Using pdftotext (Poppler) fallback."
+                        )
+                        front_text  = poppler_text
+                        cover_text  = poppler_text[:3000]
+
                 # ── Title: try font-size heuristic on cover first ──────────
                 if metadata.title == "Unknown" or metadata.title == pdf_path.stem:
                     title_by_font = self._extract_title_by_font(pdf)
@@ -400,7 +450,13 @@ class MetadataIngestor:
         except Exception as e:
             logger.error(f"PDF extraction failed for {pdf_path}: {e}")
 
-        # ── AI pass: fill any remaining Unknown / empty fields ──────────
+        # ── Targeted AI pass: learning_outcomes + prerequisites (ADR-022) ──
+        # Runs automatically whenever regex extraction left these fields empty,
+        # regardless of the use_ai flag. Silent skip if no API keys available.
+        if not metadata.learning_outcomes or not metadata.prerequisites:
+            self._ai_extract_list_fields(metadata, front_text)
+
+        # ── Full AI pass: fill any remaining Unknown / empty fields ─────────
         if self.use_ai:
             anthropic_key = os.getenv("ANTHROPIC_API_KEY")
             gemini_key    = os.getenv("GEMINI_API_KEY")
@@ -416,6 +472,45 @@ class MetadataIngestor:
                 metadata  = self._merge(metadata, ai_result)
 
         return metadata
+
+    def _pdftotext_fallback(self, pdf_path: Path, max_pages: int = 15) -> str:
+        """Fallback text extraction via Poppler's pdftotext CLI utility.
+
+        Some PDFs (e.g. OpenStax LaTeX exports) strip the ToUnicode map and use
+        Type3 CIDFonts where glyphs are drawn as paths. `pdfplumber` cannot see
+        any Character objects in these files (returns empty text).
+
+        `pdftotext` has robust heuristic mapping for these edge cases.
+        """
+        import subprocess
+        import shutil
+
+        if not shutil.which("pdftotext"):
+            logger.debug("pdftotext (Poppler) is not installed; skipping fallback.")
+            return ""
+
+        try:
+            # -f 1 (first page), -l max_pages (last page), -layout (preserve spatial flow)
+            # - (stdout output)
+            result = subprocess.run(
+                [
+                    "pdftotext",
+                    "-f", "1",
+                    "-l", str(max_pages),
+                    str(pdf_path),
+                    "-"
+                ],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"pdftotext fallback failed: {e.stderr.strip()}")
+            return ""
+        except Exception as e:
+            logger.warning(f"pdftotext fallback execution error: {e}")
+            return ""
 
     @staticmethod
     def _merge(base: CourseMetadata, ai: CourseMetadata) -> CourseMetadata:
@@ -650,7 +745,7 @@ class MetadataIngestor:
             for pat in _AUDIENCE_PATTERNS:
                 m = pat.search(combined)
                 if m:
-                    metadata.target_audience = m.group(0).strip().rstrip('.,')[:200]
+                    metadata.target_audience = m.group(1).strip().rstrip('.,')[:200]
                     break
             # Heuristic: infer from level if regex found nothing
             if metadata.target_audience == "Unknown" and metadata.level != "Unknown":
@@ -671,7 +766,7 @@ class MetadataIngestor:
             for pat in _PREREQ_PATTERNS:
                 for m in pat.finditer(full_text):
                     item = m.group(1).strip().rstrip('.,')
-                    if item and item not in found:
+                    if item and item not in found and '\n' not in item and len(item) <= 200:
                         found.append(item)
             if found:
                 metadata.prerequisites = found
@@ -734,7 +829,7 @@ class MetadataIngestor:
 
         for m_section in section_pat.finditer(text):
             start = m_section.end()
-            chunk = text[start:start + 800]  # scan 800 chars after header
+            chunk = text[start:start + 2000]  # scan 2000 chars after header
             for m_bullet in bullet_pat.finditer(chunk):
                 item = m_bullet.group(1).strip().replace('\n', ' ')
                 if 5 < len(item) < 250 and item not in outcomes:
@@ -769,6 +864,122 @@ class MetadataIngestor:
             title, re.IGNORECASE
         )
         return m.group(1).strip() if m else None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Focused AI pass: learning_outcomes + prerequisites (ADR-022)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _ai_extract_list_fields(self, metadata: CourseMetadata, front_text: str) -> None:
+        """Run a minimal, focused AI call targeting only learning_outcomes and prerequisites.
+
+        This pass is always active (no use_ai flag required). It relies on
+        _LIST_FIELDS_SYSTEM_PROMPT which enumerates all known heading synonyms so the
+        LLM can identify these sections regardless of how they are named in the PDF.
+
+        Skips silently if:
+          - Both API keys are absent (no credentials available).
+          - front_text is empty (nothing to extract from).
+          - Both fields are already populated (regex pass succeeded).
+
+        Does NOT overwrite already-populated fields.
+        """
+        # Skip if both fields are already populated by the regex pass
+        needs_outcomes = not metadata.learning_outcomes
+        needs_prereqs  = not metadata.prerequisites
+        if not needs_outcomes and not needs_prereqs:
+            return
+
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        gemini_key    = os.getenv("GEMINI_API_KEY")
+
+        if not anthropic_key and not gemini_key:
+            logger.debug(
+                "Skipping focused AI list-field extraction: no API keys available. "
+                "learning_outcomes and prerequisites may be empty."
+            )
+            return
+
+        if not front_text.strip():
+            logger.debug("Skipping focused AI list-field extraction: no front-matter text available.")
+            return
+
+        logger.info(
+            f"Running focused AI extraction for "
+            f"{'learning_outcomes' if needs_outcomes else ''}"
+            f"{' and ' if needs_outcomes and needs_prereqs else ''}"
+            f"{'prerequisites' if needs_prereqs else ''} …"
+        )
+
+        user_prompt = (
+            f"Extract learning outcomes and prerequisites from this course text.\n\n"
+            f"{front_text[:15000]}"
+        )
+
+        response_text: Optional[str] = None
+
+        # Use the existing AIMetadataExtractor for the actual API call
+        extractor = AIMetadataExtractor(
+            anthropic_key=anthropic_key,
+            gemini_key=gemini_key,
+            preferred_model=self.preferred_model,
+        )
+
+        # Override the system prompt by calling the internal LLM callers directly
+        # with our focused prompt, rather than using extract() which uses _AI_SYSTEM_PROMPT.
+        if extractor._anthropic_client:
+            try:
+                import anthropic as anthropic_lib
+                resp = extractor._anthropic_client.messages.create(
+                    model=extractor.CLAUDE_MODEL,
+                    max_tokens=1024,
+                    temperature=0.0,
+                    system=_LIST_FIELDS_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                response_text = resp.content[0].text
+                logger.info("Focused AI list extraction: Claude responded.")
+            except Exception as e:
+                logger.warning(f"Focused AI list extraction: Claude failed ({e}), trying Gemini.")
+
+        if response_text is None and extractor._gemini_client:
+            try:
+                from google.genai import types as genai_types
+                resp = extractor._gemini_client.models.generate_content(
+                    model=extractor.GEMINI_MODEL,
+                    contents=_LIST_FIELDS_SYSTEM_PROMPT + "\n\n" + user_prompt,
+                    config=genai_types.GenerateContentConfig(
+                        temperature=0.0,
+                        response_mime_type="application/json",
+                    ),
+                )
+                response_text = resp.text
+                logger.info("Focused AI list extraction: Gemini responded.")
+            except Exception as e:
+                logger.warning(f"Focused AI list extraction: Gemini also failed ({e}). Skipping.")
+                return
+
+        if not response_text:
+            return
+
+        # Parse the minimal JSON response
+        try:
+            clean = re.sub(r"```(?:json)?\s*", "", response_text).strip().rstrip("`")
+            data = json.loads(clean)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Focused AI list extraction: invalid JSON response ({e}). Skipping.")
+            return
+
+        if needs_outcomes:
+            outcomes = data.get("learning_outcomes", [])
+            if isinstance(outcomes, list) and outcomes:
+                metadata.learning_outcomes = [str(o).strip().replace('\n', ' ') for o in outcomes if str(o).strip()]
+                logger.info(f"AI extracted {len(metadata.learning_outcomes)} learning outcome(s).")
+
+        if needs_prereqs:
+            prereqs = data.get("prerequisites", [])
+            if isinstance(prereqs, list) and prereqs:
+                metadata.prerequisites = [str(p).strip().replace('\n', ' ') for p in prereqs if str(p).strip()]
+                logger.info(f"AI extracted {len(metadata.prerequisites)} prerequisite(s).")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Optional LLM fallback

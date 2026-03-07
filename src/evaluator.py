@@ -249,6 +249,13 @@ Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_o
 MODULE RUBRICS (score each segment on ONLY these 6 dimensions):
 {self.module_rubrics_yaml}
 
+SCORING PROCEDURE (apply this for every rubric, for every segment):
+Before committing a score for each dimension, first identify:
+  1. Specific evidence from the segment text that is relevant to this rubric.
+  2. Whether that evidence points to a score above the midpoint (>5) or below it (<5), and why.
+Only after this brief reasoning step should you finalise the score and write the rationale.
+This prevents regression-to-the-mean and ensures each score is independently justified.
+
 EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
 - Figures referenced in the text (e.g. "Fig. 1.1") are not available as images. Evaluate figure references positively as indicators of visual support.
 - [FIGURE X.Y: caption] markers show a figure caption extracted from the PDF — treat as evidence of visual content.

@@ -1,7 +1,10 @@
 import logging
 import datetime
-from typing import List, Dict
-from src.models import CourseMetadata, EvaluatedSegment, CourseAssessment, CourseEvaluation
+from typing import List, Dict, Optional
+from src.models import (
+    CourseMetadata, EvaluatedSegment, CourseAssessment, CourseEvaluation,
+    AssessmentTree, GateReport, RubricResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -11,12 +14,20 @@ class ScoreAggregator:
 
     Only 'instructional' segments contribute to the module_gate overall score.
     The course_gate assessment is passed through directly (it is already a holistic score).
+
+    Also builds the ADR-024 AssessmentTree for the structured output.
     """
 
     # Module Gate dimensions — must match ModuleScores fields in models.py
     _MODULE_DIMENSIONS = [
         "goal_focus", "text_readability", "pedagogical_clarity",
         "example_concreteness", "example_coherence", "instructional_alignment",
+    ]
+
+    # Course Gate dimensions — must match CourseScores fields in models.py
+    _COURSE_DIMENSIONS = [
+        "prerequisite_alignment", "structural_usability",
+        "business_relevance", "fluidity_continuity",
     ]
 
     def aggregate(
@@ -92,8 +103,17 @@ class ScoreAggregator:
             f"Course Gate Overall: {course_assessment.overall_score}"
         )
 
+        # --- Build ADR-024 AssessmentTree ---
+        assessment_tree = self._build_assessment_tree(
+            module_overall=module_overall,
+            module_gate_score=module_gate_score,
+            instructional_segments=instructional_segments,
+            course_assessment=course_assessment,
+        )
+
         return CourseEvaluation(
             course_metadata=metadata.model_dump() if hasattr(metadata, 'model_dump') else metadata,
+            assessment=assessment_tree,
             module_gate=module_overall,
             course_gate=course_assessment,
             segments=[s.model_dump() if hasattr(s, 'model_dump') else s for s in segments],
@@ -105,4 +125,64 @@ class ScoreAggregator:
                 "instructional_segments_scored": len(instructional_segments),
                 "excluded_segments": len(segments) - len(instructional_segments),
             }
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ADR-024: AssessmentTree builder
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _build_assessment_tree(
+        self,
+        module_overall: Dict[str, float],
+        module_gate_score: float,
+        instructional_segments: List[EvaluatedSegment],
+        course_assessment: CourseAssessment,
+    ) -> AssessmentTree:
+        """Construct the tree-structured view of both gate results.
+
+        Module Gate rubric rationales: For each dimension, pick the longest (most
+        detailed) rationale from any scored instructional segment. Surfaces the most
+        substantiated justification rather than an arbitrary one.
+
+        Course Gate rubric rationales: taken directly from CourseAssessment.reasoning.
+        """
+        # --- Module Gate rubrics ---
+        module_rubrics: Dict[str, RubricResult] = {}
+
+        for dim in self._MODULE_DIMENSIONS:
+            score = module_overall.get(dim, 0.0)
+            best_rationale = ""
+            rationale_key = f"{dim}_rationale"
+            for seg in instructional_segments:
+                reasoning = getattr(seg, 'reasoning', None)
+                if reasoning is None:
+                    continue
+                r = getattr(reasoning, rationale_key, "") or ""
+                if isinstance(r, str) and len(r) > len(best_rationale):
+                    best_rationale = r
+            module_rubrics[dim] = RubricResult(score=score, rationale=best_rationale)
+
+        module_gate_report = GateReport(
+            overall_score=module_gate_score,
+            rubrics=module_rubrics,
+        )
+
+        # --- Course Gate rubrics ---
+        course_scores_dict   = course_assessment.scores.model_dump()
+        course_reasoning_dict = course_assessment.reasoning.model_dump()
+        course_rubrics: Dict[str, RubricResult] = {}
+
+        for dim in self._COURSE_DIMENSIONS:
+            score     = float(course_scores_dict.get(dim, 0))
+            rationale = course_reasoning_dict.get(f"{dim}_rationale", "") or ""
+            course_rubrics[dim] = RubricResult(score=score, rationale=rationale)
+
+        course_gate_report = GateReport(
+            overall_score=course_assessment.overall_score,
+            rubrics=course_rubrics,
+        )
+
+        return AssessmentTree(
+            module_gate=module_gate_report,
+            course_gate=course_gate_report,
         )
