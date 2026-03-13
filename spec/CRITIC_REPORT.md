@@ -26,11 +26,11 @@ The SemanticFlow pedagogical evaluator contains fundamental flaws that currently
 - **Risk:** For a textbook yielding 50 segments, the exact same massive system instructions are billed 50 times. This drastically increases input token costs and latency for zero added value.
 - **Suggested Fix:** Utilize Anthropic's prompt caching for the rubric and system instructions, or place the rubric in a persistent system prompt, find a way to reduce the token usage regardless of the ai used , gemini or claude.
 
-### Output Overload (Zero-Shot Cognitive Load) [UNFIXED]
-- **Location:** `src/evaluator.py` (`_build_prompt`)
-- **Problem:** The prompt asks the model to read a segment and simultaneously output 10 distinct scores and 10 detailed rationales in a single zero-shot pass.
-- **Risk:** LLMs suffer from cognitive overload when asked to track and evaluate 10 distinct, complex rubrics at once. This leads to regression to the mean (scoring everything a 5 or 6) and hallucinated rationales.
-- **Suggested Fix:** Break the evaluation into smaller cognitive chunks (e.g., Structural evaluation vs. Content evaluation) in separate prompt calls, or use a Chain-of-Thought pipeline where the model writes the rationale *before* outputting the score.
+### Output Overload (Zero-Shot Cognitive Load) [FIXED]
+- **Location:** `src/evaluator.py` (`_build_module_batch_prompts`)
+- **Problem:** The prompt asked the model to read a segment and simultaneously output 6 distinct scores and rationales in a single zero-shot pass.
+- **Risk:** LLMs suffer from cognitive overload when asked to track and evaluate multiple complex rubrics at once. This leads to regression to the mean (scoring everything a 5 or 6) and hallucinated rationales.
+- **Fix Applied:** Added a Chain-of-Thought (CoT) SCORING PROCEDURE block to the Module Gate system prompt (ADR-021). For each rubric, the LLM is instructed to first identify specific textual evidence and reason whether the score should be above or below the midpoint before committing a value. This prevents regression-to-mean without adding API calls or schema changes.
 
 ## Significant Improvements
 
@@ -77,7 +77,7 @@ The SemanticFlow pedagogical evaluator contains fundamental flaws that currently
 | 2 | Silent Schema Defaults Corrupt Scores [FIXED] | Extraction | Critical | `src/evaluator.py` & `src/models.py` |
 | 3 | Destructive Segment Merging [FIXED] | Segmentation | Critical | `src/segmenter.py` |
 | 4 | Wasteful Full-Rubric Prompting [FIXED] | Cost | Critical | `src/evaluator.py` |
-| 5 | Output Overload (Zero-Shot Cognitive Load) [UNFIXED] | Accuracy | Critical | `src/evaluator.py` |
+| 5 | Output Overload (Zero-Shot Cognitive Load) [FIXED] | Accuracy | Critical | `src/evaluator.py` |
 | 6 | Data Loss in Table Extraction [FIXED] | Extraction | Significant | `src/segmenter.py` |
 | 7 | Incomplete Metadata Extraction [FIXED] | Extraction | Significant | `src/metadata.py` |
 | 8 | Pointless Evaluation of Non-Instructional Segments [FIXED] | Cost | Significant | `src/evaluator.py` |

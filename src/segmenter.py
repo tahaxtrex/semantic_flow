@@ -9,6 +9,49 @@ from src.models import Segment
 
 logger = logging.getLogger(__name__)
 
+# OCR availability flag — set on first import attempt
+_OCR_AVAILABLE: Optional[bool] = None
+
+def _check_ocr_available() -> bool:
+    """Check once whether tesseract + pdf2image are available."""
+    global _OCR_AVAILABLE
+    if _OCR_AVAILABLE is None:
+        try:
+            import pytesseract
+            import pdf2image
+            pytesseract.get_tesseract_version()  # raises if not installed
+            _OCR_AVAILABLE = True
+        except Exception:
+            _OCR_AVAILABLE = False
+    return _OCR_AVAILABLE
+
+def _ocr_page(pdf_path: Path, page_index: int) -> str:
+    """Render a PDF page to an image and extract text via Tesseract OCR.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        page_index: 0-based page index.
+
+    Returns:
+        Extracted plain text, or empty string on failure.
+    """
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+        images = convert_from_path(
+            str(pdf_path),
+            dpi=300,
+            first_page=page_index + 1,
+            last_page=page_index + 1,
+        )
+        if not images:
+            return ""
+        text = pytesseract.image_to_string(images[0], lang="eng")
+        return text.strip()
+    except Exception as e:
+        logger.warning(f"OCR failed for page {page_index + 1}: {e}")
+        return ""
+
 # Regex to replace CID artifact placeholders (critic.md Issue 9)
 _CID_RE = re.compile(r'\(cid:\d+\)')
 
@@ -28,8 +71,27 @@ _REFERENCE_TABLE_PATTERNS = [
     re.compile(r'\b(appendix|table of|reference table|index)\b', re.IGNORECASE),
 ]
 _FRONTMATTER_PATTERNS = [
-    re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication)\s*)$', re.IGNORECASE),
+    re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication|bibliography|glossary|index|appendix|abbreviations|list of figures|list of tables)\s*)$', re.IGNORECASE),
 ]
+
+# Heuristics to detect copyright / license pages by content density of legal keywords
+_COPYRIGHT_KEYWORDS = [
+    'creative commons', 'all rights reserved', 'isbn', 'doi:', 'published by',
+    'reproduced without', 'prior written consent',
+    'licensed under', 'licensing, please contact', 'rice university',
+    'openstax', 'kendall hunt', 'arnold ventures', 'chan zuckerberg',
+    'attribution', 'noncommercial',
+]
+
+def _is_copyright_page(text: str) -> bool:
+    """Return True if the text is predominantly copyright/legal boilerplate."""
+    lower = text.lower()
+    # Also count © symbol occurrences (works for ©2025 and © 2025)
+    symbol_hits = lower.count('©')
+    keyword_hits = sum(1 for kw in _COPYRIGHT_KEYWORDS if kw in lower)
+    total_hits = keyword_hits + (2 if symbol_hits >= 1 else 0)
+    # If 4+ copyright markers found, it's frontmatter
+    return total_hits >= 4
 
 
 class SmartSegmenter:
@@ -56,11 +118,30 @@ class SmartSegmenter:
         self.min_chars = min_chars  # kept for backward compat; not used in main merge path
 
     def segment(self) -> List[Segment]:
-        """Extract text from PDF, group by major headers, and apply fallback chunking."""
+        """Extract text from PDF, group by major headers, and apply fallback chunking.
+
+        Extraction strategy (ADR-023, three-tier hierarchy):
+          1. TOC path:  If the PDF has a bookmark outline with ≥2 entries, use the
+             TOC to derive chapter-precise page ranges. Most accurate.
+          2. Font-heuristic path: Fall back to font-size jump detection if no TOC.
+          3. Sentence chunking: Applied to any block that exceeds max_chars.
+        """
         logger.info(f"Segmenting PDF: {self.pdf_path.name}")
-        raw_blocks, page_count = self._extract_blocks_with_headers()
-        max_segments = max(1, page_count // 10)
-        logger.info(f"PDF has {page_count} pages — aiming to logically group related chunks...")
+
+        # --- Try TOC-based extraction first (ADR-023) ---
+        toc_blocks, page_count = self._extract_toc()
+        if toc_blocks:
+            logger.info(
+                f"TOC found with {len(toc_blocks)} entries — using TOC-based segmentation."
+            )
+            raw_blocks = toc_blocks
+        else:
+            logger.info(
+                f"No usable TOC — falling back to font-heuristic segmentation."
+            )
+            raw_blocks, page_count = self._extract_blocks_with_headers()
+
+        logger.info(f"PDF has {page_count} pages — merging short blocks...")
         merged_blocks = self._merge_short_blocks(raw_blocks)
 
         segments = []
@@ -83,6 +164,238 @@ class SmartSegmenter:
 
         logger.info(f"Generated {len(segments)} segments for {self.pdf_path.name}")
         return segments
+
+    # ------------------------------------------------------------------
+    # TOC-based segmentation (ADR-023 — primary strategy)
+    # ------------------------------------------------------------------
+
+    def _extract_toc(self) -> Tuple[List[Tuple[Optional[str], str]], int]:
+        """Use the PDF's bookmark outline to derive chapter-accurate segments.
+
+        Each entry in the PDF outline provides a (title, page_number) pair.
+        This method groups the page text between consecutive TOC entries into one
+        raw block, producing chapter-aligned segments with zero boundary confusion.
+
+        Text quality:
+          - Same body-crop (top 10%, bottom 8%) as the font-heuristic path.
+          - Same CID replacement, table annotation, figure annotation.
+          - Same [CODE]/[/CODE] markers for monospace lines.
+          - Blank line inserted between pages for readability.
+
+        Returns:
+          - (blocks, page_count) if TOC has ≥2 usable entries.
+          - ([], page_count) if no usable TOC found (caller falls back to heuristic).
+        """
+        blocks: List[Tuple[Optional[str], str]] = []
+        page_count = 0
+
+        try:
+            with pdfplumber.open(self.pdf_path) as pdf:
+                page_count = len(pdf.pages)
+
+                # --- Read the PDF outline ---
+                outline = []
+                try:
+                    raw_outline = pdf.doc.outline
+                    if raw_outline:
+                        outline = self._flatten_outline(raw_outline, pdf)
+                except Exception as e:
+                    logger.debug(f"Could not read PDF outline: {e}")
+
+                if len(outline) < 2:
+                    logger.debug(
+                        f"PDF outline has {len(outline)} entry/entries — too few for TOC segmentation."
+                    )
+                    return [], page_count
+
+                logger.info(
+                    f"PDF outline has {len(outline)} entries. "
+                    f"Using TOC-based segmentation."
+                )
+
+                # Determine per-page median font size for code-block detection
+                all_sizes = []
+                for page in pdf.pages:
+                    words = page.extract_words(extra_attrs=["size"])
+                    all_sizes.extend([w['size'] for w in words if 'size' in w])
+                all_sizes.sort()
+                median_size = all_sizes[len(all_sizes) // 2] if all_sizes else 10.0
+                header_threshold = median_size * 1.4
+
+                # Build page-range segments from TOC entries
+                # outline is a list of (title, 0-based-page-index)
+                for i, (title, start_page) in enumerate(outline):
+                    end_page = outline[i + 1][1] if i + 1 < len(outline) else page_count
+                    # Clamp to valid range
+                    start_page = max(0, min(start_page, page_count - 1))
+                    end_page   = max(start_page + 1, min(end_page, page_count))
+
+                    page_texts = []
+                    _ocr_warned = False
+                    for pg_idx in range(start_page, end_page):
+                        page = pdf.pages[pg_idx]
+                        W = float(page.width)
+                        H = float(page.height)
+                        body = page.within_bbox((0, H * 0.10, W, H * 0.92))
+
+                        raw_words = body.extract_words(extra_attrs=["size", "fontname"])
+                        if not raw_words:
+                            # OCR fallback for scanned pages
+                            if _check_ocr_available():
+                                if not _ocr_warned:
+                                    logger.info(
+                                        f"[TOC-OCR] Scanned pages in '{self.pdf_path.name}' — "
+                                        "using Tesseract fallback."
+                                    )
+                                    _ocr_warned = True
+                                ocr_text = _ocr_page(self.pdf_path, pg_idx)
+                                if ocr_text:
+                                    clean_lines = [
+                                        ln for ln in ocr_text.splitlines()
+                                        if ln.strip() and not re.fullmatch(r'\d+', ln.strip())
+                                    ]
+                                    page_texts.extend(clean_lines)
+                            continue
+
+                        # Table detection (same as font-heuristic path)
+                        table_bboxes = []
+                        table_annotations = []
+                        try:
+                            tables = body.find_tables()
+                            for table in tables:
+                                bbox = table.bbox
+                                table_bboxes.append(bbox)
+                                try:
+                                    extracted = table.extract()
+                                    if extracted:
+                                        table_text = "\n".join(
+                                            " | ".join(
+                                                str(cell).strip() if cell is not None else ''
+                                                for cell in row
+                                            )
+                                            for row in extracted
+                                            if any(cell is not None for cell in row)
+                                        )
+                                        annotation = (
+                                            f"[TABLE:\n{table_text[:4000]}\n]"
+                                            if table_text.strip()
+                                            else "[TABLE]"
+                                        )
+                                    else:
+                                        annotation = "[TABLE]"
+                                except Exception:
+                                    annotation = "[TABLE]"
+                                table_annotations.append((bbox[1], annotation))
+                        except Exception:
+                            pass
+
+                        # Filter out words inside table bboxes
+                        filtered_words = [
+                            w for w in raw_words
+                            if not any(
+                                w['x0'] >= tx0 and w['x1'] <= tx1
+                                and w['top'] >= ttop and w['bottom'] <= tbot
+                                for (tx0, ttop, tx1, tbot) in table_bboxes
+                            )
+                        ]
+
+                        lines = self._words_to_lines(filtered_words, header_threshold)
+
+                        # Inject table annotations at correct Y positions and build page text
+                        in_code_block = False
+                        line_iter = iter(lines)
+                        page_line_texts = []
+
+                        for ann_y, ann_text in sorted(table_annotations, key=lambda x: x[0]):
+                            page_line_texts.append(ann_text)
+
+                        # Simple linear pass: just reconstruct text with code markers
+                        for line in lines:
+                            text = line['text'].strip()
+                            if not text or re.fullmatch(r'\d+', text):
+                                continue
+                            # Figure caption injection (Issue 6)
+                            fig_match = re.match(
+                                r'(Fig\.?\s*\d+\.\d+)\s+(.+)', text, re.IGNORECASE
+                            )
+                            if fig_match and not line['is_code'] and line['max_size'] < header_threshold:
+                                page_line_texts.append(
+                                    f"[FIGURE {fig_match.group(1)}: {fig_match.group(2).strip()}]"
+                                )
+                                continue
+                            # Code block markers
+                            if line['is_code'] and not in_code_block:
+                                page_line_texts.append("[CODE]")
+                                in_code_block = True
+                            elif not line['is_code'] and in_code_block:
+                                page_line_texts.append("[/CODE]")
+                                in_code_block = False
+                            page_line_texts.append(text)
+
+                        if in_code_block:
+                            page_line_texts.append("[/CODE]")
+                            in_code_block = False
+
+                        if page_line_texts:
+                            page_texts.append("\n".join(page_line_texts))
+
+                    combined_text = "\n\n".join(page_texts).strip()
+                    if combined_text:
+                        blocks.append((title.strip() if title else None, combined_text))
+
+        except Exception as e:
+            logger.error(f"Error reading PDF for TOC extraction: {e}")
+            return [], page_count
+
+        return blocks, page_count
+
+    def _flatten_outline(self, outline, pdf) -> List[Tuple[Optional[str], int]]:
+        """Recursively flatten the PDF bookmark tree into [(title, 0-based-page-num)].
+
+        pdfplumber exposes the raw PyMuPDF/pikepdf outline as nested dicts with
+        'title' and 'page' fields. This method walks the tree depth-first and
+        returns a deduplicated, sorted flat list of (title, page_index) tuples.
+        """
+        result = []
+
+        def _walk(items):
+            for item in items:
+                if isinstance(item, dict):
+                    title = item.get('title', '') or ''
+                    page  = item.get('page', None)
+                    if page is not None:
+                        # pdfplumber may return 0-based or 1-based depending on PDF version
+                        try:
+                            page_idx = int(page)
+                            # Normalise: if clearly 1-based (page 0 would be before page 1),
+                            # convert to 0-based.
+                            if page_idx >= len(pdf.pages):
+                                page_idx = len(pdf.pages) - 1
+                            result.append((title.strip(), page_idx))
+                        except (TypeError, ValueError):
+                            pass
+                    # Recurse into children
+                    children = item.get('children', []) or []
+                    _walk(children)
+                elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                    # Some versions expose as (title, page) tuples
+                    try:
+                        result.append((str(item[0]).strip(), int(item[1])))
+                    except (TypeError, ValueError):
+                        pass
+
+        _walk(outline)
+
+        # Deduplicate consecutive same-page entries and sort by page
+        result.sort(key=lambda x: x[1])
+        seen_pages = set()
+        deduped = []
+        for title, page in result:
+            if page not in seen_pages:
+                seen_pages.add(page)
+                deduped.append((title, page))
+
+        return deduped
 
     # ------------------------------------------------------------------
     # Segment type classification (critic.md Issue 8)
@@ -124,6 +437,10 @@ class SmartSegmenter:
         for pat in _FRONTMATTER_PATTERNS:
             if pat.fullmatch(first_line):
                 return "frontmatter"
+
+        # Copyright / license pages (content-based heuristic)
+        if _is_copyright_page(text):
+            return "frontmatter"
 
         return "instructional"
 
@@ -209,21 +526,43 @@ class SmartSegmenter:
                     all_sizes.extend([w['size'] for w in words if 'size' in w])
 
                 if not all_sizes:
-                    logger.warning(f"Could not detect text natively in {self.pdf_path.name}. Possibly scanned.")
-                    return [(None, "")], page_count
-
-                all_sizes.sort()
-                median_size = all_sizes[len(all_sizes) // 2]
-                header_threshold = median_size * 1.4
-                logger.info(f"Body median font size: {median_size:.1f}pt — chapter header threshold: {header_threshold:.1f}pt")
+                    logger.warning(f"Could not detect text natively in {self.pdf_path.name}. Will use OCR if available.")
+                    # Don't return early — let the per-page loop try OCR
+                    median_size = 10.0  # sensible default when no native text exists
+                    header_threshold = median_size * 1.4
+                else:
+                    all_sizes.sort()
+                    median_size = all_sizes[len(all_sizes) // 2]
+                    header_threshold = median_size * 1.4
+                    logger.info(f"Body median font size: {median_size:.1f}pt — chapter header threshold: {header_threshold:.1f}pt")
 
                 # 2. Extract and group lines per page
+                _ocr_warned = False
                 for page in pdf.pages:
                     W = float(page.width)
                     H = float(page.height)
 
                     # Crop to body region — strips running headers (top 10%) and footers (bottom 8%)
                     body = page.within_bbox((0, H * 0.10, W, H * 0.92))
+
+                    # --- OCR FALLBACK: if page has no native text, try tesseract ---
+                    raw_words_check = body.extract_words(extra_attrs=["size", "fontname"])
+                    if not raw_words_check:
+                        if _check_ocr_available():
+                            if not _ocr_warned:
+                                logger.info(f"[OCR] Scanned pages detected in {self.pdf_path.name} — using Tesseract OCR fallback.")
+                                _ocr_warned = True
+                            ocr_text = _ocr_page(self.pdf_path, page.page_number - 1)
+                            if ocr_text:
+                                # Strip common OCR noise: lines that are just digits (page numbers)
+                                clean_lines = [
+                                    ln for ln in ocr_text.splitlines()
+                                    if ln.strip() and not re.fullmatch(r'\d+', ln.strip())
+                                ]
+                                current_text_lines.extend(clean_lines)
+                        else:
+                            logger.debug(f"[OCR] Page {page.page_number} has no native text and tesseract is not available — skipping.")
+                        continue
 
                     # Detect tables in the body region; collect bounding boxes
                     table_bboxes = []

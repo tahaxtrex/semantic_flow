@@ -14,4 +14,5 @@ ai/
 tests
 tests/
 /tests
-data/output/**
+
+!data/output/output.json

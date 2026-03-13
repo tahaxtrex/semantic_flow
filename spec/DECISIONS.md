@@ -292,3 +292,218 @@ Previously, metadata extraction was tightly coupled to the evaluation run. The s
 - Does not interfere with the original auto-scan pipeline.
 
 **Linked Requirements:** FR-001, FR-002, FR-009
+
+---
+
+## ADR-016: Two-Gate Assessment Architecture (Course vs. Module)
+
+**Date:** 2026-03-02
+**Status:** Accepted
+
+**Context:**
+The evaluation criteria previously applied all 10 rubrics uniformly to every instructional segment. However, in the context of educational structures, rubrics logically apply to different domains: "Modules" (the actual content people read) vs "Courses" (how the modules are structured, related, and overall metadata alignment). The user directed a restructure into two distinct gates to reflect this reality.
+
+**Decision:**
+The pedagogical evaluation will be divided into two gates:
+1. **Module Gate**: Evaluates the atomic content chapters for quality (Goal Focus, Text Readability, Pedagogical Clarity, Example Concreteness, Example Coherence, Instructional Alignment).
+2. **Course Gate**: Evaluates the holistic structure and alignment of the entire program (Prerequisite Alignment, Structural Usability, Business Relevance, Fluidity & Continuity).
+
+**Consequences:**
+- The codebase will need distinct pathways and Pydantic schemas for Module-level and Course-level evaluations.
+- The `rubrics.yaml` will be structurally divided.
+- LLM prompts will become more targeted, reducing cognitive load by removing irrelevant rubrics from chunk-level evaluations.
+
+**Linked Requirements:** (Pending Phase 1 requirement generation for Two-Gate Architecture)
+
+---
+
+## ADR-017: Capstone Course Gate Execution
+
+**Date:** 2026-03-02
+**Status:** Accepted
+
+**Context:**
+With the split of course vs. module assessment (ADR-016), we must decide how the LLM accesses the entire textbook to grade the Course Gate rubrics without blowing past token limits or incurring massive API costs.
+
+**Decision:**
+1. The **Module Gate** executes first, traversing the textbook segment-by-segment in batches exactly as it does now, but scoring only the 6 Module rubrics.
+2. During Module execution, we ask the LLM to provide a 1-2 sentence "content summary" of each segment.
+3. Once all modules are evaluated, the **Course Gate** executes exactly once as a capstone call.
+4. The Course Gate is provided with: Course Metadata, the concatenated list of segment summaries (forming a sequential narrative of the book's flow), and the bypassed Non-Instructional segments (TOC, preface).
+5. The Course Gate returns a single set of 4 scores and rationales for the entire textbook.
+
+**Consequences:**
+- Very low token cost for the Course evaluation (only summaries and TOC are sent).
+- Perfectly isolates the holistic rubrics from the atomic ones in `models.py`.
+- Generates two completely distinct overall scores (`course_average_score` and `module_average_score`) to avoid polluting data.
+
+---
+
+## ADR-018: Tesseract OCR Fallback for Scanned PDFs
+
+**Date:** 2026-03-03
+**Status:** Accepted
+
+**Context:**
+Real-world course PDFs (e.g., scanned OpenStax textbooks) embed pages as images rather than native text. `pdfplumber` returns 0 words for such pages, causing the segmenter to silently produce a single unusable block. The pipeline needs to handle mixed-mode PDFs (some pages native, some scanned) without requiring the user to pre-process the file.
+
+**Options Considered:**
+1. *Reject scanned PDFs with a clear error:* Simple, but blocks valid research inputs.
+2. *Pre-processing step (ocrmypdf):* Clean, but requires users to run a separate command and store an intermediate file.
+3. *Per-page silent fallback to Tesseract:* Transparent, no extra steps, graceful degradation when tesseract is absent.
+
+**Decision:**
+Option 3. For each page, after `pdfplumber` extraction, if the word list is empty, `_ocr_page()` renders the page at 300 DPI via `pdf2image` (Poppler-backed) and runs `pytesseract.image_to_string()`. The result is appended to the current text block. OCR is a one-time lazy check: if `tesseract` binary is absent, a DEBUG message is logged and the page is skipped without crashing.
+
+**Consequences:**
+- System dependency: `tesseract-ocr` + `poppler-utils` must be installed (`sudo apt install tesseract-ocr poppler-utils`).
+- Python dependencies: `pytesseract>=0.3.10`, `pdf2image>=1.17.0` added to `requirements.txt`.
+- OCR text has no font metadata, so header detection does not apply; content is appended as body text within the current block.
+- Quality of OCR output depends on scan quality; clean 300 DPI scans are expected to produce usable evaluation input.
+
+**Linked Requirements:** FR-003, ADR-001
+
+---
+
+## ADR-019: Skip Course Gate When No Instructional Segments Exist
+
+**Date:** 2026-03-03
+**Status:** Accepted
+
+**Context:**
+When a PDF contains only frontmatter/copyright pages (or when all pages are unreadable scanned images with tesseract unavailable), the Module Gate produces zero instructional segments and zero content summaries. Previously, the Course Gate capstone call was still executed, passing only course metadata (title, description). Gemini would infer scores from the publisher name ("OpenStax = high quality") and produce misleadingly high holistic scores (e.g. 8.25/10).
+
+**Decision:**
+In `main.py`, before executing the Course Gate, check `has_instructional = any(s.segment_type == "instructional" for s in segments)`. If `False`, skip the LLM capstone call entirely, log a `WARNING`, and populate the `CourseAssessment` with `_make_incomplete_course_assessment()` (all zeros). This makes the output honest: if we cannot assess module content, we cannot assess course holism.
+
+**Consequences:**
+- Saves one Gemini API call per content-empty PDF.
+- Output is truthful: `course_gate.overall_score = 0.0` clearly signals no assessment was possible.
+- Human reviewers can see from `evaluation_meta.excluded_segments` and `instructional_segments_scored: 0` that the PDF was unreadable.
+
+---
+
+## ADR-020: Enforce Gemini Response Schema via `response_schema`
+
+**Date:** 2026-03-03
+**Status:** Accepted
+
+**Context:**
+Gemini's `application/json` response mode does not guarantee any specific JSON structure by default. Observed failure modes include: returning `{"evaluations": [...]}` instead of `[...]`, returning `{"rubric_scores": [{id, score, rationale}]}` instead of `{"scores": {...}, "reasoning": {...}}`, and omitting rationale fields entirely. While `_unwrap_gemini_list` / `_unwrap_gemini_object` provide post-hoc normalization, preventing malformed output upstream is preferable.
+
+**Decision:**
+Pass the existing Claude tool `input_schema` dict as `response_schema` in `types.GenerateContentConfig` for both Module Gate and Course Gate Gemini calls. This instructs the Gemini API to constrain its output to match the schema before returning. The `_unwrap_*` helpers are retained as a defense-in-depth layer.
+
+**Consequences:**
+- Fewer JSON parse/unwrap failures in practice.
+- Both Claude (tool-use) and Gemini (response_schema) now share the same schema definition — single source of truth.
+- If Gemini rejects a schema (e.g. unsupported field type), the error will surface as a structured API error rather than a silent malformed response.
+
+---
+
+## ADR-021: Chain-of-Thought Scoring Procedure in Module Gate Prompt
+
+**Date:** 2026-03-06
+**Status:** Accepted
+
+**Context:**
+CRITIC_REPORT Issue #5 identified that the Module Gate's zero-shot prompting approach (asking the LLM to simultaneously evaluate all 6 rubrics) caused regression-to-the-mean (scores clustering around 5–6) and hallucinated rationales.
+
+**Options Considered:**
+1. *Split into two separate API calls (structural vs content rubrics):* Eliminates cognitive overload entirely but doubles the API call count per batch, significantly increasing cost and latency. Conflicts with ADR-011 (batching philosophy).
+2. *Chain-of-Thought (CoT) SCORING PROCEDURE injection:* Add a step-by-step reasoning instruction to the existing system prompt that guides the LLM to first identify specific textual evidence and reason about the midpoint threshold before committing a score. Zero additional API cost.
+
+**Decision:**
+Option 2. A `SCORING PROCEDURE` block was added to `_build_module_batch_prompts()` in `evaluator.py`. For each rubric, the LLM is instructed to: (1) identify specific textual evidence relevant to the rubric, (2) reason whether the score should be above or below the midpoint (5), then (3) finalise the score and rationale. The output schema, API call structure, and batch size are unchanged.
+
+**Consequences:**
+- Scores are expected to be more discriminating and less clustered around the midpoint.
+- Rationales are expected to reference specific evidence from the segment text.
+- No increase in API cost or latency.
+
+**Linked Requirements:** FR-005, ADR-011
+
+
+---
+
+## ADR-022: Focused AI Extraction for Learning Outcomes & Prerequisites
+
+**Date:** 2026-03-06
+**Status:** Accepted
+
+**Context:**
+The regex-based extractor in `metadata.py` reliably finds fields like title and author but frequently misses `learning_outcomes` and `prerequisites`. These fields are critical for the Course Gate's `prerequisite_alignment` rubric yet are named inconsistently in PDFs ("Objectives", "Goals", "Must Knows", "What You Will Learn", etc.). This gap directly degrades evaluation accuracy (FR-001, Q-001).
+
+**Options Considered:**
+1. *Expand regex patterns:* Cannot enumerate all possible heading synonyms exhaustively across publishers.
+2. *Require structured metadata file:* Shifts burden to user; contradicts the goal of fully automated extraction.
+3. *Targeted AI pass always active for list fields:* Minimal prompt (~300 tokens) that enumerates all heading synonyms. Runs only when fields are empty after regex pass.
+
+**Decision:**
+Option 3. Add `_ai_extract_list_fields()` to `MetadataIngestor`, triggered automatically after the regex pass whenever `learning_outcomes` or `prerequisites` remain empty. Uses `_LIST_FIELDS_SYSTEM_PROMPT` which explicitly lists every known heading synonym. Reuses the existing Claude→Gemini fallback hierarchy. Silent skip if no API keys configured.
+
+**Consequences:**
+- One additional small API call per PDF (only when needed). Cost: ~500 tokens.
+- Fields are now reliably extracted regardless of heading style used by the publisher.
+- Does not overwrite fields already populated by the regex pass.
+
+**Linked Requirements:** FR-001, Q-001, Q-013
+
+---
+
+## ADR-023: TOC-Based Segmentation (Three-Tier Hierarchy)
+
+**Date:** 2026-03-06
+**Status:** Accepted
+**Amends:** ADR-001 (adds a new first tier above the hybrid strategy)
+
+**Context:**
+The existing font-heuristic segmenter (`_extract_blocks_with_headers`) treats every font-size jump as a potential chapter boundary. This creates two problems: (1) sub-headings and callout boxes generate spurious new segments, splitting chapters mid-content; (2) chapters can be merged or cut at wrong boundaries. Most well-structured PDFs contain an embedded bookmark outline (TOC) that encodes the exact chapter structure with page numbers. This is the authoritative source.
+
+**Options Considered:**
+1. *Improve font-heuristic thresholds:* Fragile; publisher-specific tuning required.
+2. *Use only TOC:* Falls back to nothing on PDFs without outlines (scanned, older textbooks).
+3. *TOC-first with font-heuristic fallback:* Accurate for well-structured PDFs; fully backwards-compatible.
+
+**Decision:**
+Option 3. `segment()` now calls `_extract_toc()` first. If the PDF outline has ≥2 entries, page ranges between consecutive TOC entries are used to extract text for each chapter segment. Falls back to `_extract_blocks_with_headers()` if no usable outline is found. Both paths feed the same `_merge_short_blocks` → `_chunk_text` → `_classify_segment` pipeline. `_flatten_outline()` handles nested/recursive PDF outlines and normalizes 0-based/1-based page numbering. The TOC path applies the same body crop, CID replacement, table annotation, figure annotation, OCR fallback, and code-block markers as the heuristic path.
+
+**Consequences:**
+- Chapters are now accurately delimited for PDFs with embedded outlines.
+- Text is more readable: each segment is a complete, self-contained chapter.
+- No regression for PDFs without outlines (fallback is unchanged).
+- `_extract_toc()` is a pure read-only method that does not alter any state.
+
+**Linked Requirements:** FR-003, FR-004, Q-002
+
+---
+
+## ADR-024: Tree-Structured Assessment Output
+
+**Date:** 2026-03-06
+**Status:** Accepted
+
+**Context:**
+The current `module_gate: Dict[str, Any]` flat dict in `CourseEvaluation` does not express the hierarchy of scores. Both gate results (module and course) needed a structured, human-readable format that clearly shows overall gate scores alongside per-rubric breakdowns, including the rationale for each rubric. The previous response to Q-017 specified independent overall scores per gate; this ADR operationalises the shape of those scores in the output JSON.
+
+**Options Considered:**
+1. *Flat dict (current):* No hierarchy; rationales not included.
+2. *Replace flat dict with tree:* Breaking change. Downstream consumers that parse `module_gate.goal_focus` directly would need updating.
+3. *Add tree alongside flat dict:* Backwards compatible. Old field `module_gate` retained; new field `assessment` added.
+
+**Decision:**
+Option 3. Added three new Pydantic models to `models.py`:
+- `RubricResult(score: float, rationale: str)` — leaf node.
+- `GateReport(overall_score: float, rubrics: Dict[str, RubricResult])` — one gate.
+- `AssessmentTree(module_gate: GateReport, course_gate: GateReport)` — root.
+
+`CourseEvaluation` gains `assessment: AssessmentTree` as its primary structured output. The flat `module_gate: Dict[str, Any]` is retained for backwards compatibility.
+
+`ScoreAggregator._build_assessment_tree()` populates the tree. Module gate rubric rationales use the longest single rationale from any scored segment for each dimension (surfaces most substantiated justification). Course gate rubric scores and rationales come directly from `CourseAssessment`.
+
+**Consequences:**
+- Output JSON now has a clear tree structure for easy human reading and downstream parsing.
+- The `assessment` field is the canonical output; `module_gate` is a backwards-compat alias.
+- Three new Pydantic models; no changes to evaluation logic.
+
+**Linked Requirements:** Q-017, Q-010

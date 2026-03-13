@@ -1,3 +1,80 @@
+## 2026-03-06 — Three-Feature Extension: AI Metadata, TOC Segmentation, Tree Output
+
+**Type:** Feature Addition (x2) + Refinement (x1)
+
+**What changed:**
+- `src/metadata.py`: Added `_LIST_FIELDS_SYSTEM_PROMPT` and `_ai_extract_list_fields()`. Auto-triggers an AI pass after the regex stage to extract `learning_outcomes` and `prerequisites` under any heading name.
+- `src/segmenter.py`: Added `_extract_toc()` and `_flatten_outline()`. `segment()` now uses the PDF bookmark outline first; falls back to font-heuristic. Chapters precisely delimited.
+- `src/models.py`: Added `RubricResult`, `GateReport`, `AssessmentTree`. `CourseEvaluation` gains `assessment: AssessmentTree`.
+- `src/aggregator.py`: Added `_build_assessment_tree()` populating the full tree at aggregation time.
+- `tests/test_aggregator.py`: 3 new AssessmentTree tests. Suite: 45/45 passing.
+- `spec/DECISIONS.md`: ADR-022, ADR-023, ADR-024 appended.
+- `spec/TASKS.md`: TASK-040 through TASK-044 added (all complete).
+
+**Why it changed:**
+Prerequisites and learning outcomes were missed when PDFs used non-standard headings. TOC-based segmentation prevents chapters being split at wrong boundaries. The tree output makes assessment results human-readable with a clear rubric hierarchy.
+
+**Affected artifacts:**
+- ADR-022, ADR-023, ADR-024 -> New
+- TASK-040 through TASK-044 -> Complete
+
+## 2026-03-06 — Test Suite Fix & Chain-of-Thought Module Gate Prompting
+
+**Type:** Bug Fix / Accuracy Improvement
+
+**What changed:**
+- `tests/test_aggregator.py`: Rewrote entirely. Updated imports from stale `SectionScores`/`SectionReasoning` to `ModuleScores`/`ModuleReasoning`. Updated `aggregate()` call to include required `course_assessment` argument. Expanded from 1 broken test to 4 comprehensive tests covering weighted averages, non-instructional segment exclusion, course gate passthrough, and empty segment edge cases.
+- `src/evaluator.py`: Added `SCORING PROCEDURE` Chain-of-Thought block to the Module Gate system prompt in `_build_module_batch_prompts()`. For each rubric, the LLM is guided to identify specific textual evidence, reason above/below the midpoint, then finalise the score — before populating the rationale. No schema or API call count changes.
+- `spec/DECISIONS.md`: Added ADR-021 (Chain-of-Thought scoring procedure).
+- `spec/TASKS.md`: Added TASK-038 and TASK-039 (both complete).
+- `spec/CRITIC_REPORT.md`: Marked Issue #5 (Output Overload) as [FIXED].
+
+**Why it changed:**
+- `test_aggregator.py` was broken by the Two-Gate refactor (TASK-038). The test suite failed to collect, masking any regressions.
+- CRITIC_REPORT Issue #5 (zero-shot cognitive overload) was the last unfixed issue. A CoT prompt injection resolves it without splitting API calls or adding cost.
+
+**Affected artifacts:**
+- TASK-038 → Complete
+- TASK-039 → Complete
+- ADR-021 → New
+- CRITIC_REPORT Issue #5 → [FIXED]
+
+## 2026-03-04 — Minor Refinements: Metadata Cap, Example Output & .gitignore
+
+**Type:** Minor Tweak / Developer Experience
+**What changed:**
+- `src/metadata.py`: Raised `contributing_authors` cap from 15 to 17 — accommodates textbooks with larger author/contributor lists (e.g. OpenStax community books).
+- `data/output/output.json`: Added a committed example output file showing the expected JSON schema produced by the pipeline (`module_gate`, `course_gate`, `segments` with per-rubric scores, summaries, and rationales). Serves as a reference for consumers of the evaluation output.
+- `data/output/.gitkeep`: Updated to reference `output.json` to make the example file's purpose explicit.
+- `.gitignore`: Added `!data/output/output.json` exception rule so the example output file is tracked in git despite the blanket `data/output/**` ignore pattern.
+**Why it changed:** Users forking the repo need a concrete example of what the pipeline produces. The `.gitignore` exception ensures the example is always present in the repo without committing real evaluation artefacts.
+**Impact:** No functional change to the evaluation pipeline.
+
+## 2026-03-03 — Pipeline Hardening: OCR Fallback, Scanned PDF Support & Gemini Schema Enforcement
+**Type:** Bug Fix / Feature Addition
+**What changed:**
+- `src/segmenter.py`: Added OCR fallback (`_check_ocr_available`, `_ocr_page`) using `pytesseract` + `pdf2image`. When pdfplumber returns 0 words for a page (scanned image), the page is rendered at 300 DPI and Tesseract is invoked automatically. Graceful no-op if tesseract is not installed. Also expanded copyright/license page detection (`_is_copyright_page`) with keyword density heuristic — pages with 4+ legal markers (©, Creative Commons, ISBN, OpenStax…) are classified as `frontmatter`.
+- `src/evaluator.py`: Fixed two Gemini JSON parsing bugs — added `_unwrap_gemini_list` and `_unwrap_gemini_object` helpers to normalize all Gemini response shapes (bare array, `{"evaluations":[...]}` wrapping, `{"rubric_scores":[{id,score}]}` list-of-objects, etc.). Added `response_schema` to `GenerateContentConfig` for both Module Gate and Course Gate Gemini calls to enforce strict JSON compliance upstream.
+- `src/main.py`: Course Gate is now skipped when no instructional segments are found — avoids meaningless scores based purely on metadata title/description. An incomplete `CourseAssessment` (all zeros) is used instead, with a WARNING log. Also fixed: `--input` now accepts a direct `.pdf` file path in addition to a directory.
+- `requirements.txt`: Added `pytesseract>=0.3.10` and `pdf2image>=1.17.0`.
+**Why it changed:** Real-world course PDFs (e.g. scanned OpenStax textbooks) are image-based from page 6 onwards. The pipeline was silently returning a single frontmatter segment with all-zero scores, misrepresenting the course. Gemini's non-deterministic JSON shapes also required robust unwrapping and schema enforcement.
+**Impact:**
+- Scanned PDFs now produce real segmented, evaluated output (requires `sudo apt install tesseract-ocr poppler-utils`).
+- Pipeline is more honest: no-content PDFs emit a clear warning instead of inflated Course Gate scores.
+- Gemini evaluations are structurally guaranteed via `response_schema`.
+
+## 2026-03-02 — Project Scoping: Two-Gate Assessment Architecture
+**Type:** Architecture Redesign / Scope change
+**What changed:** 
+- `spec/DECISIONS.md`: Added ADR-016 accepting the split of evaluation into distinct Course and Module gates.
+- `spec/QUESTIONS.md`: Logged Q-014 through Q-023 to clarify execution, aggregation, and codebase decoupling parameters before implementation.
+- `spec/task.md`: Tasks drafted to divide `rubrics.yaml`, rewrite `evaluator.py`, and separate `models.py`.
+**Why it changed:** User identified that evaluating course-level metrics (e.g. Structure, Prerequisites) on an atomic, segment-by-segment basis was pedagogically inaccurate. Assessment needed to mirror real-world program design natively.
+**Impact:** 
+- The entire evaluation script will be decoupled into two stages.
+- `rubrics.yaml` will be restructured.
+- Phase 0/1 Discovery initiated to define the exact runtime mechanics.
+
 ## 2026-02-25 — Multi-Issue Resolution & Pipeline Hardening
 **Type:** Bug fixes & Architecture Redesign
 **What changed:** 

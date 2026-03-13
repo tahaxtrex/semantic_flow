@@ -1,0 +1,38 @@
+{
+    "module_gate": {
+        "goal_focus": 7.5,
+        "text_readability": 8.2,
+        "pedagogical_clarity": 7.1,
+        "example_concreteness": 6.8,
+        "example_coherence": 7.0,
+        "instructional_alignment": 8.1,
+        "overall_score": 7.45
+    },
+    "course_gate": {
+        "scores": {
+            "prerequisite_alignment": 8,
+            "structural_usability": 7,
+            "business_relevance": 6,
+            "fluidity_continuity": 9
+        },
+        "reasoning": {
+            "...?": "...",
+            "...": "..."
+        },
+        "overall_score": 7.5
+    },
+    "segments": [
+        {
+            "summary": "Chapter covers...",
+            "scores": {
+                "goal_focus": 7.5,
+                "text_readability": 8.2,
+                "pedagogical_clarity": 7.1,
+                "example_concreteness": 6.8,
+                "example_coherence": 7.0,
+                "instructional_alignment": 8.1,
+                "overall_score": 7.45
+            }
+        }
+    ]
+}

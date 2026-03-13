@@ -4,3 +4,5 @@ google-genai>=0.1.0
 pydantic>=2.6.1
 PyYAML>=6.0.1
 python-dotenv>=1.0.1
+pytesseract>=0.3.10
+pdf2image>=1.17.0

@@ -92,3 +92,74 @@
 - [x] TASK-029: Make `metadata.py` independently executable as a standalone CLI tool.
   - Spec ref: FR-009, ADR-015
   - Notes: Add `if __name__ == "__main__"` block to `metadata.py`. Accept `--pdf`, `--metadata` (optional), and `--output` arguments. Output a human-reviewable JSON file that can be edited and fed back into the evaluator via `--metadata`.
+
+  # Restructuring Assessment into Two Gates
+
+## Current Understanding
+The user wants to divide the pedagogical evaluation into two distinct gates to better reflect real-world educational structures (Programs > Courses > Modules > Chapters).
+1. **Course Gate**: Assesses how well modules are structured, related, and overall course metadata.
+2. **Module Gate**: Assesses the actual content chapters (what people read).
+
+## Checklist
+- [x] Read [.ai/GEMINI.md](file:///home/xtrex/Documents/project/github/semantic_flow/.ai/GEMINI.md) to understand documentation standards.
+- [x] Read [config/rubrics.yaml](file:///home/xtrex/Documents/project/github/semantic_flow/config/rubrics.yaml) and assign existing rubrics to Course vs. Module gates.
+- [x] Analyze [src/evaluator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/evaluator.py) and [src/models.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/models.py) to see how rubrics are currently injected and parsed.
+- [x] Formulate 10 clarifying questions to prevent guessing.
+- [x] Write the 10 questions to [spec/QUESTIONS.md](file:///home/xtrex/Documents/project/github/semantic_flow/spec/QUESTIONS.md).
+- [x] Write initial architectural decisions to [spec/DECISIONS.md](file:///home/xtrex/Documents/project/github/semantic_flow/spec/DECISIONS.md).
+- [x] Write the proposed implementation plan in an artifact.
+- [x] Present the plan and questions to the user for review.
+- [x] Implement [config/rubrics.yaml](file:///home/xtrex/Documents/project/github/semantic_flow/config/rubrics.yaml) schema split.
+- [x] Implement [src/models.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/models.py) Two-Gate schema split (Course vs Module tracking).
+- [x] Rewrite [src/evaluator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/evaluator.py) `evaluate_batch` for Module Gate (incl. summaries).
+- [x] Write [src/evaluator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/evaluator.py) `evaluate_course` for capstone Course Gate.
+- [x] Rewrite [src/aggregator.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/aggregator.py) to aggregate both scopes correctly.
+- [x] Update [src/main.py](file:///home/xtrex/Documents/project/github/semantic_flow/src/main.py) pipeline orchestration to run both gates sequentially.
+
+## Phase: Pipeline Hardening & Scanned PDF Support
+- [x] TASK-030: Fix Gemini JSON response unwrapping for Module Gate and Course Gate.
+  - Spec ref: ADR-020
+  - Notes: Added `_unwrap_gemini_list` (normalizes wrapped `{"evaluations":[...]}` responses) and `_unwrap_gemini_object` (normalizes `{"rubric_scores":[{id,score}]}` and other shapes) to `evaluator.py`. Both gates log the raw Gemini response on parse failure.
+- [x] TASK-031: Enforce Gemini response structure via `response_schema`.
+  - Spec ref: ADR-020
+  - Notes: Pass `_MODULE_EVAL_TOOL["input_schema"]` and `_COURSE_EVAL_TOOL["input_schema"]` as `response_schema` in `types.GenerateContentConfig` for both Gemini callers. Prevents malformed JSON at the API level.
+- [x] TASK-032: Add copyright/license page detection to `segmenter.py`.
+  - Spec ref: ADR-001
+  - Notes: `_is_copyright_page(text)` checks keyword density (©, Creative Commons, ISBN, OpenStax, Kendall Hunt, etc.). 4+ hits → segment classified as `frontmatter`. Expanded `_FRONTMATTER_PATTERNS` with glossary, bibliography, list of figures, etc.
+- [x] TASK-033: Skip Course Gate when no instructional segments are present.
+  - Spec ref: ADR-019
+  - Notes: `has_instructional` guard in `main.py` before the Course Gate call. Zero-content PDFs get a WARNING + incomplete CourseAssessment instead of a fabricated score.
+- [x] TASK-034: Add Tesseract OCR fallback for scanned PDF pages.
+  - Spec ref: ADR-018
+  - Notes: `_check_ocr_available()` (lazy-cached) + `_ocr_page(pdf_path, page_index)` in `segmenter.py`. Per-page: if pdfplumber returns 0 words → render at 300 DPI via `pdf2image` → `pytesseract.image_to_string()`. Graceful no-op if tesseract binary absent. `requirements.txt` updated with `pytesseract` and `pdf2image`. System prereqs: `sudo apt install tesseract-ocr poppler-utils`.
+- [x] TASK-035: Allow `--input` to accept a direct `.pdf` file path.
+  - Spec ref: CON-002
+  - Notes: `main.py` now checks `input_path.is_file()` before falling back to directory glob. Enables `python -m src.main --input data/courses/foo.pdf ...` without scanning the whole folder.
+- [x] TASK-036: Add committed example output file for fork/onboarding reference.
+  - Spec ref: NFR-004
+  - Notes: `data/output/output.json` added as a representative mock of the pipeline's JSON schema. `.gitignore` updated with `!data/output/output.json` to keep it tracked despite the blanket `data/output/**` exclusion.
+- [x] TASK-037: Raise `contributing_authors` cap in `metadata.py` from 15 to 17.
+  - Spec ref: FR-001
+  - Notes: Accommodates OpenStax and other community-authored textbooks with larger contributor lists.
+- [x] TASK-038: Fix `tests/test_aggregator.py` to match current Two-Gate API.
+  - Spec ref: ADR-016, ADR-026
+  - Notes: Rewrote test file to import `ModuleScores`/`ModuleReasoning` (replacing stale `SectionScores`/`SectionReasoning`), added required `CourseAssessment` argument to `aggregate()` calls, and expanded test coverage to 4 tests: weighted average, non-instructional exclusion, course gate passthrough, and empty segment edge case.
+- [x] TASK-039: Add Chain-of-Thought scoring procedure to Module Gate system prompt.
+  - Spec ref: FR-005, ADR-021
+  - Notes: Added `SCORING PROCEDURE` block in `_build_module_batch_prompts()` instructing the LLM to identify specific textual evidence and reason above/below midpoint threshold per rubric before committing a score. Fixes CRITIC_REPORT Issue #5 with zero schema or cost changes.
+
+- [x] TASK-040: Add focused AI extraction pass for learning_outcomes and prerequisites.
+  - Spec ref: ADR-022
+  - Notes: Added `_LIST_FIELDS_SYSTEM_PROMPT` constant and `_ai_extract_list_fields()` method to `MetadataIngestor` in `metadata.py`. Triggers automatically after regex pass when either list field is empty. Uses the focused prompt enumerating all heading synonyms (Objectives, Goals, Must Knows, What You Will Learn, etc.). Reuses Claude→Gemini fallback; silent skip if no API keys available.
+- [x] TASK-041: Add TOC-based segmentation as the primary segmentation strategy.
+  - Spec ref: ADR-023
+  - Notes: Added `_extract_toc()` and `_flatten_outline()` methods to `SmartSegmenter` in `segmenter.py`. `segment()` now tries TOC extraction first (requires ≥2 outline entries); falls back to `_extract_blocks_with_headers()` if no usable TOC found. TOC path applies same body-crop, CID, table, figure, and code-block processing as the heuristic path, plus per-page OCR fallback for scanned PDFs.
+- [x] TASK-042: Add AssessmentTree structured output model.
+  - Spec ref: ADR-024
+  - Notes: Added `RubricResult`, `GateReport`, and `AssessmentTree` Pydantic models to `models.py`. Added `assessment: AssessmentTree` field to `CourseEvaluation`. Old flat `module_gate` dict retained for backwards compatibility.
+- [x] TASK-043: Populate AssessmentTree in ScoreAggregator.
+  - Spec ref: ADR-024
+  - Notes: Added `_build_assessment_tree()` method to `ScoreAggregator` in `aggregator.py`. Populates module gate rubrics with weighted-average scores and the longest rationale found across scored segments. Populates course gate rubrics directly from `CourseAssessment.scores` and `.reasoning`.
+- [x] TASK-044: Expand test_aggregator.py with AssessmentTree tests.
+  - Spec ref: ADR-024
+  - Notes: Added 3 new tests (tests 8-10): `test_assessment_tree_structure`, `test_assessment_tree_module_scores_match_flat_dict`, `test_assessment_tree_course_scores_match_assessment`. Total test count: 45/45 passing.

@@ -1,0 +1,23 @@
+{
+  "title": "Database Management Systems",
+  "author": "Defense Advanced Research Projects Agency",
+  "target_audience": "nested information; and graphical format",
+  "subject": "database management systems, how they are used to address business problems, and",
+  "source": "secondpart.pdf",
+  "description": "Databases play a significant role in everyday life, even if they are unnoticed. From organizing personal photos",
+  "prerequisites": [
+    "handling of complex data types and relationships efficiently"
+  ],
+  "learning_outcomes": [
+    "Define data and differentiate between types of data",
+    "Identify tools and techniques for managing data with database systems",
+    "Determine how to gather, organize, curate, and process data",
+    "Describe the design process and structure for a database management system",
+    "Explain the challenges in developing a mobile first design with a database"
+  ],
+  "publisher": "openstax",
+  "year": "Unknown",
+  "isbn": "Unknown",
+  "level": "Advanced",
+  "contributing_authors": []
+}
