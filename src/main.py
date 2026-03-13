@@ -103,7 +103,7 @@ def main():
 
     aggregator = ScoreAggregator()
     exporter = JSONExporter(output_dir)
-    model_string = "Claude claude-sonnet-4-6" if args.model == 'claude' else "Gemini-2.5-Flash"
+    model_string = "Claude 3.5 Sonnet" if args.model == 'claude' else "Gemini-2.5-Flash"
 
     for pdf_path in pdfs:
         try:

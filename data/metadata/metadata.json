@@ -1,0 +1,20 @@
+{
+  "title": "Foundations of Information Systems",
+  "author": "Mahesh S. Raisinghani",
+  "target_audience": "multiple audiences of learners and",
+  "subject": "Information Systems",
+  "source": "firstpart.pdf",
+  "description": "OpenStax is part of Rice University, which is a 501(c)(3) nonprofit charitable corporation.",
+  "prerequisites": [
+    "technology"
+  ],
+  "learning_outcomes": [
+    "Define the key concepts in information systems",
+    "Discuss the historical evolution of information systems"
+  ],
+  "publisher": "OpenStax",
+  "year": "2025",
+  "isbn": "978-1-711472-95-9",
+  "level": "Introductory",
+  "contributing_authors": []
+}

@@ -334,7 +334,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
     def _call_claude_module_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
         logger.info(f"[Module Gate] Evaluating batch of {len(segments)} segments via Claude")
         response = self.anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+            model="sonnet-4-6",
             max_tokens=8192,
             temperature=0.2,
             system=system_prompt,
@@ -526,7 +526,7 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
     def _call_claude_course(self, system_prompt: str, user_prompt: str) -> CourseAssessment:
         logger.info("[Course Gate] Running capstone course evaluation via Claude")
         response = self.anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+            model="sonnet-4-6",
             max_tokens=4096,
             temperature=0.2,
             system=system_prompt,

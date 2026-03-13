@@ -35,7 +35,7 @@ class ScoreAggregator:
         metadata: CourseMetadata,
         segments: List[EvaluatedSegment],
         course_assessment: CourseAssessment,
-        model_used: str = "Claude claude-sonnet-4-6",
+        model_used: str = "Claude 3.5 Sonnet",
     ) -> CourseEvaluation:
         logger.info(f"Aggregating Module Gate scores for {len(segments)} segments.")
 

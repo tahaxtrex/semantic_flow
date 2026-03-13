@@ -198,7 +198,7 @@ class AIMetadataExtractor:
     Tries Claude first; falls back to Gemini if Claude fails.
     """
 
-    CLAUDE_MODEL  = "claude-sonnet-4-6"
+    CLAUDE_MODEL  = "sonnet-4-6"
     GEMINI_MODEL  = "gemini-2.5-flash"
     MAX_RETRIES   = 2
     RETRY_BACKOFF = 3  # seconds, doubles each retry
@@ -417,17 +417,17 @@ class MetadataIngestor:
 
                 # ── Gather text from cover + front matter ──────────────────
                 cover_text = self._extract_cover_text(pdf)       # pages 0-2
-                front_text = self._extract_front_matter(pdf)     # pages 0-14 / 6000 words
+                front_text = self._extract_front_matter(pdf)     # pages 0-24 / 12000 words
 
                 # ── Fallback: pdftotext (Poppler) for CIDFont/Type3 PDFs ───
                 # Some PDFs render glyphs as path drawings with no char objects
                 # (e.g. certain OpenStax LaTeX→PDF pipelines). pdfplumber returns
                 # 0 words; Poppler's pdftotext handles the font mapping correctly.
-                if not front_text.strip():
-                    poppler_text = self._pdftotext_fallback(pdf_path, max_pages=15)
-                    if poppler_text:
+                if len(front_text.split()) < 2000:
+                    poppler_text = self._pdftotext_fallback(pdf_path, max_pages=25)
+                    if poppler_text and len(poppler_text) > len(front_text):
                         logger.info(
-                            f"pdfplumber returned no text for '{pdf_path.name}'. "
+                            f"pdfplumber extracted unusually little text for '{pdf_path.name}'. "
                             "Using pdftotext (Poppler) fallback."
                         )
                         front_text  = poppler_text
@@ -549,9 +549,9 @@ class MetadataIngestor:
             parts.append(text)
         return "\n".join(parts)
 
-    def _extract_front_matter(self, pdf, max_pages: int = 20, max_words: int = 6000) -> str:
+    def _extract_front_matter(self, pdf, max_pages: int = 25, max_words: int = 12000) -> str:
         """
-        Extended scan: up to 20 pages or 6000 words.
+        Extended scan: up to 25 pages or 12000 words.
         Increased from original 15/5000 to catch prefaces that start later.
         """
         parts = []
