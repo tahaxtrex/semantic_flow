@@ -507,3 +507,99 @@ Option 3. Added three new Pydantic models to `models.py`:
 - Three new Pydantic models; no changes to evaluation logic.
 
 **Linked Requirements:** Q-017, Q-010
+
+---
+
+## ADR-025: Running Page Header Rejection in Segment Classifier
+
+**Date:** 2026-03-13
+**Status:** Accepted
+**Addresses:** critic.v2.md Issue 1 (CRITICAL)
+
+**Context:**
+The OpenStax running header `"Access. The future of education."` appears at the top of many pages in split PDFs. Because it is rendered in a large or bold font, the font-heuristic path occasionally picks it up as a chapter heading. When `_classify_segment()` then receives this string as the heading, the frontmatter regex matches and classifies the resulting segment as `frontmatter`, zeroing out its scores silently. This was confirmed to affect at least 3 segments in `firstpart.pdf`.
+
+**Decision:**
+Added `_KNOWN_RUNNING_HEADERS` frozenset to `segmenter.py`. At the start of `_classify_segment()`, if `heading.lower().strip()` is found in this frozenset, heading is set to `None` before any pattern matching runs. The set currently covers OpenStax variants; extending it requires only adding a string.
+
+**Consequences:**
+- Eliminates false frontmatter classification for known publisher running headers.
+- The segment is evaluated normally as `instructional` because the text contains genuine educational content.
+- 9 new unit tests exercise this behavior.
+
+**Linked Requirements:** critic.v2.md Issue 1
+
+---
+
+## ADR-026: Glossary, Summary, and Assessment Segment Types
+
+**Date:** 2026-03-13
+**Status:** Accepted
+**Amends:** ADR-012 (extends the non-instructional bypass list)
+**Addresses:** critic.v2.md Issue 2 (HIGH)
+
+**Context:**
+End-of-chapter "Key Terms" glossary sections, "Summary" bullet lists, and "Check Your Understanding" question banks were being evaluated as instructional content. This skews scores: glossaries artificially lower `example_concreteness`; question banks inflate `goal_focus` and (now Course Gate) `instructional_alignment`. All three should be bypassed identically to `exercise`, `solution`, and `frontmatter`.
+
+**Decision:**
+Added three detection mechanisms to `_classify_segment()` in `segmenter.py`:
+- **`glossary`**: heading matches `^(key\s+terms?|glossary)$`.
+- **`summary`**: heading matches `^(summary|chapter summary|module summary|section summary)$`.
+- **`assessment`**: body has ≥3 lettered option lines (`a. …`) AND ≥2 numbered question lines. No heading required.
+
+All three types pass through `evaluate_batch()` with zero scores and no summary.
+
+**Consequences:**
+- Glossaries, summaries, and assessment banks no longer distort Module Gate averages.
+- Zero added API cost: these segments are bypassed without an LLM call.
+
+**Linked Requirements:** critic.v2.md Issue 2, ADR-012
+
+---
+
+## ADR-027: Partial-Course File Detection in Course Gate
+
+**Date:** 2026-03-13
+**Status:** Accepted
+**Addresses:** critic.v2.md Issue 3 (HIGH)
+
+**Context:**
+Large textbooks are often split into multiple PDF files. The Course Gate evaluates each file independently, but rubrics like `fluidity_continuity` and `structural_usability` penalise for missing introductory material, no Table of Contents, and module gaps — all of which exist in sibling files.
+
+**Decision:**
+Added `_detect_partial_course()` to `LLMEvaluator`. Returns `True` when:
+1. No non-instructional segment contains TOC/preface signals, AND
+2. No instructional segment heading begins with a first-chapter pattern.
+
+When `True`, a "PARTIAL COURSE FILE" disclaimer is prepended to the Course Gate system prompt, telling the LLM not to penalise for absent modules or missing introductory material. `evaluate_course()` now returns `(CourseAssessment, is_partial_course: bool)`.
+
+**Consequences:**
+- Partial files receive fair scores on continuity rubrics.
+- The heuristic is conservative; complete single-file courses are not flagged.
+- No additional API cost.
+
+**Linked Requirements:** critic.v2.md Issue 3
+
+---
+
+## ADR-028: Instructional Alignment Moved to Course Gate (ADR-016 Correction)
+
+**Date:** 2026-03-13
+**Status:** Accepted
+**Amends:** ADR-016
+**Addresses:** critic.v2.md Issue 4 (MEDIUM)
+
+**Context:**
+`instructional_alignment` was listed in the Module Gate in ADR-016, but its definition ("are learning content, activities, and stated outcomes aligned across the course") is inherently a cross-module, holistic property. You cannot assess whether all modules collectively deliver on the course's learning objectives by reading a single segment.
+
+**Decision:**
+Removed `instructional_alignment` from `ModuleScores`, `ModuleReasoning`, `_MODULE_SCORE_FIELDS`, and the Module Gate tool schema. Added it to `CourseScores`, `CourseReasoning`, `_COURSE_SCORE_FIELDS`, and the Course Gate tool schema. The `rubrics.yaml` definition is relocated from `module_rubrics` to `course_rubrics` with an updated cross-module framing.
+
+The Module Gate now scores 5 rubrics; the Course Gate scores 5 rubrics.
+
+**Consequences:**
+- Module Gate no longer scores a rubric requiring whole-course visibility.
+- Course Gate overall_score is now the mean of 5 rubrics (previously 4).
+- All Pydantic schemas, field lists, tool schemas, and rubrics.yaml are consistent.
+
+**Linked Requirements:** critic.v2.md Issue 4, ADR-016, Q-016

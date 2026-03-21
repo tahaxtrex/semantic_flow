@@ -6,7 +6,8 @@
   "source": "firstpart.pdf",
   "description": "OpenStax is part of Rice University, which is a 501(c)(3) nonprofit charitable corporation.",
   "prerequisites": [
-    "technology"
+    "technology",
+    "IT literacy"
   ],
   "learning_outcomes": [
     "Define the key concepts in information systems",

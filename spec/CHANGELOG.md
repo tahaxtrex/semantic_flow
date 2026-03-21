@@ -189,3 +189,47 @@ Prerequisites and learning outcomes were missed when PDFs used non-standard head
 **What changed:** Project documentation initialized based on User trigger `PLANNER`.
 **Why it changed:** Requested by user following `GEMINI.md` logic.
 **Impact:** Initialized `spec/PROJECT.md` and `spec/QUESTIONS.md`. Prompted 7 clarifying questions.
+
+## 2026-03-13 — Critic v2 Fixes: Segmenter Classification, Rubric Realignment, Fragment Awareness
+
+**Type:** Bug Fix (x3) + Architecture Correction (x1)
+
+**What changed:**
+
+- `src/segmenter.py`:
+  - Added `_KNOWN_RUNNING_HEADERS` frozenset. Known publisher running headers (e.g. "Access. The future of education.") are now stripped from the heading field before classification — preventing false `frontmatter` tagging and score zeroing (ADR-025 / critic.v2 Issue 1).
+  - Added `_GLOSSARY_HEADING_PATTERNS`, `_SUMMARY_HEADING_PATTERNS`, `_ASSESSMENT_OPTION_RE`, `_NUMBERED_QUESTION_RE`. New segment types `glossary`, `summary`, and `assessment` are now returned by `_classify_segment()` and bypassed by the Module Gate evaluator with zero scores and no LLM call (ADR-026 / critic.v2 Issue 2).
+
+- `src/evaluator.py`:
+  - Added `_detect_partial_course()` heuristic method. Detects PDF files that are fragments of larger courses (no TOC, no Chapter 1 heading) and injects a "PARTIAL COURSE FILE" disclaimer into the Course Gate system prompt (ADR-027 / critic.v2 Issue 3).
+  - `evaluate_course()` now returns `(CourseAssessment, is_partial_course: bool)` tuple.
+  - Removed `instructional_alignment` from `_MODULE_SCORE_FIELDS` and Module Gate tool schema. Added it to `_COURSE_SCORE_FIELDS` and Course Gate tool schema (ADR-028 / critic.v2 Issue 4).
+  - Updated `_make_incomplete_course_assessment()` to include `instructional_alignment=0`.
+
+- `src/models.py`:
+  - Removed `instructional_alignment` from `ModuleScores` and `ModuleReasoning`.
+  - Added `instructional_alignment` to `CourseScores` and `CourseReasoning`.
+
+- `src/main.py`:
+  - Updated `evaluate_course()` call to unpack `(course_assessment, is_partial_course)` tuple.
+  - Logs a clear INFO message when a partial-course file is detected.
+
+- `config/rubrics.yaml`:
+  - Removed `instructional_alignment` from `module_rubrics`.
+  - Added `instructional_alignment` to `course_rubrics` with cross-module framing.
+
+- `tests/test_segmenter.py`:
+  - Added 9 new tests: 2 for running header rejection (Issue 1), 7 for glossary/summary/assessment classification (Issue 2).
+  - Suite: **39/39 passing**.
+
+- `spec/DECISIONS.md`: ADR-025 through ADR-028 appended.
+- `spec/CHANGELOG.md`: This entry.
+- `spec/QUESTIONS.md`: Q-027 through Q-030 added.
+
+**Why it changed:**
+Four issues identified in `Planning/critic.v2.md` after evaluation of `firstpart.pdf` and `secondpart.pdf`. Running headers were silently zeroing instructional segments. Glossaries and question banks were being scored as content, distorting averages. Split PDF files were being penalised for material in sibling files. And `instructional_alignment` was architecturally misplaced in the Module Gate.
+
+**Affected artifacts:**
+- ADR-025 through ADR-028 → New
+- Q-027 through Q-030 → New
+- critic.v2.md Issues 1–4 → Fixed

@@ -15,4 +15,5 @@ tests
 tests/
 /tests
 
-!data/output/output.json
+
+data/output/evaluation.log

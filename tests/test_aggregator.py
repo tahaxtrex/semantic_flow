@@ -10,13 +10,14 @@ from src.aggregator import ScoreAggregator
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _course_assessment(pa=7, su=8, br=6, fc=7, overall=7.0) -> CourseAssessment:
+def _course_assessment(pa=7, su=8, br=6, fc=7, ia=7, overall=7.0) -> CourseAssessment:
     return CourseAssessment(
         scores=CourseScores(
             prerequisite_alignment=pa,
             structural_usability=su,
             business_relevance=br,
             fluidity_continuity=fc,
+            instructional_alignment=ia,  # ADR-028
         ),
         reasoning=CourseReasoning(),
         overall_score=overall,
@@ -25,9 +26,10 @@ def _course_assessment(pa=7, su=8, br=6, fc=7, overall=7.0) -> CourseAssessment:
 
 def _seg(sid: int, text: str, segment_type: str = "instructional",
          incomplete: bool = False, **scores) -> EvaluatedSegment:
+    # Module Gate now scores 5 rubrics (instructional_alignment moved to Course Gate — ADR-028)
     defaults = dict(
         goal_focus=5, text_readability=5, pedagogical_clarity=5,
-        example_concreteness=5, example_coherence=5, instructional_alignment=5,
+        example_concreteness=5, example_coherence=5,
     )
     defaults.update(scores)
     return EvaluatedSegment(
@@ -72,10 +74,10 @@ def test_non_instructional_excluded_from_average():
     # If excluded, it should be 8.0 exactly.
     instructional = _seg(1, "A" * 100, goal_focus=8, text_readability=8,
                          pedagogical_clarity=8, example_concreteness=8,
-                         example_coherence=8, instructional_alignment=8)
+                         example_coherence=8)
     exercise = _seg(2, "B" * 100, segment_type="exercise", goal_focus=2,
                     text_readability=2, pedagogical_clarity=2,
-                    example_concreteness=2, example_coherence=2, instructional_alignment=2)
+                    example_concreteness=2, example_coherence=2)
 
     result = aggregator.aggregate(metadata, [instructional, exercise], _course_assessment())
 
@@ -99,10 +101,10 @@ def test_incomplete_instructional_excluded():
 
     good = _seg(1, "G" * 100, goal_focus=10, text_readability=10,
                 pedagogical_clarity=10, example_concreteness=10,
-                example_coherence=10, instructional_alignment=10)
+                example_coherence=10)
     bad = _seg(2, "B" * 100, incomplete=True, goal_focus=0, text_readability=0,
                pedagogical_clarity=0, example_concreteness=0,
-               example_coherence=0, instructional_alignment=0)
+               example_coherence=0)
 
     result = aggregator.aggregate(metadata, [good, bad], _course_assessment())
 
@@ -123,7 +125,7 @@ def test_all_incomplete_gives_zeros():
 
     seg = _seg(1, "X" * 100, incomplete=True, goal_focus=8, text_readability=8,
                pedagogical_clarity=8, example_concreteness=8,
-               example_coherence=8, instructional_alignment=8)
+               example_coherence=8)
 
     result = aggregator.aggregate(metadata, [seg], _course_assessment())
     assert result.module_gate["goal_focus"] == 0.0
@@ -174,12 +176,12 @@ def test_module_gate_overall_is_mean_of_dimensions():
     # Single segment, all scores identical → overall must equal that score
     seg = _seg(1, "text " * 10, goal_focus=6, text_readability=6,
                pedagogical_clarity=6, example_concreteness=6,
-               example_coherence=6, instructional_alignment=6)
+               example_coherence=6)
     result = aggregator.aggregate(metadata, [seg], _course_assessment())
 
     dims = ["goal_focus", "text_readability", "pedagogical_clarity",
-            "example_concreteness", "example_coherence", "instructional_alignment"]
-    dim_mean = sum(result.module_gate[d] for d in dims) / 6
+            "example_concreteness", "example_coherence"]
+    dim_mean = sum(result.module_gate[d] for d in dims) / 5
     assert result.module_gate["overall_score"] == pytest.approx(dim_mean, abs=0.01)
     assert result.module_gate["overall_score"] == pytest.approx(6.0, abs=0.01)
 
@@ -194,7 +196,7 @@ def test_assessment_tree_structure():
     metadata = CourseMetadata(title="Test", source="test.pdf")
     seg = _seg(1, "content " * 50, goal_focus=7, text_readability=6,
                pedagogical_clarity=8, example_concreteness=5,
-               example_coherence=7, instructional_alignment=6)
+               example_coherence=7)
     result = aggregator.aggregate(metadata, [seg], _course_assessment(pa=8, su=7, br=6, fc=9))
 
     assert hasattr(result, 'assessment')
@@ -203,13 +205,15 @@ def test_assessment_tree_structure():
     mg = tree.module_gate
     assert isinstance(mg, GateReport)
     assert isinstance(mg.overall_score, float)
+    # Module Gate now has 5 rubrics (instructional_alignment moved to Course Gate — ADR-028)
     for dim in ["goal_focus", "text_readability", "pedagogical_clarity",
-                "example_concreteness", "example_coherence", "instructional_alignment"]:
+                "example_concreteness", "example_coherence"]:
         assert dim in mg.rubrics
     cg = tree.course_gate
     assert isinstance(cg, GateReport)
+    # Course Gate now has 5 rubrics (instructional_alignment added — ADR-028)
     for dim in ["prerequisite_alignment", "structural_usability",
-                "business_relevance", "fluidity_continuity"]:
+                "business_relevance", "fluidity_continuity", "instructional_alignment"]:
         assert dim in cg.rubrics
 
 
@@ -219,12 +223,12 @@ def test_assessment_tree_module_scores_match_flat_dict():
     metadata = CourseMetadata(title="Test", source="test.pdf")
     seg = _seg(1, "text " * 30, goal_focus=8, text_readability=7,
                pedagogical_clarity=9, example_concreteness=6,
-               example_coherence=8, instructional_alignment=7)
+               example_coherence=8)
     result = aggregator.aggregate(metadata, [seg], _course_assessment())
     flat = result.module_gate
     tree_mg = result.assessment.module_gate
     for dim in ["goal_focus", "text_readability", "pedagogical_clarity",
-                "example_concreteness", "example_coherence", "instructional_alignment"]:
+                "example_concreteness", "example_coherence"]:
         assert tree_mg.rubrics[dim].score == pytest.approx(flat[dim], abs=0.01)
     assert tree_mg.overall_score == pytest.approx(flat["overall_score"], abs=0.01)
 

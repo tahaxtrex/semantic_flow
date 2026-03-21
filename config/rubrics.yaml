@@ -12,8 +12,9 @@ module_rubrics:
   - id: goal_focus
     name: "Goal Focus"
     description: >
-      Does the text concentrate on explaining core concepts relevant to its
-      stated objective, or does it include unnecessary digressions and fluff?
+      Does the text concentrate on explaining core concepts relevant to the
+      stated Learning Outcomes from the Course Metadata, or does it include
+      unnecessary digressions and fluff?
       It should prioritize 'Must-Know' information over supplemental details.
     weight: 1.0
     scoring_guide:
@@ -67,25 +68,14 @@ module_rubrics:
       mid: "4-6: Some thematic connection but inconsistencies exist"
       high: "7-10: Examples build on each other and form a coherent narrative"
 
-  - id: instructional_alignment
-    name: "Instructional Alignment"
-    description: >
-      Are instructional materials current, accurate, and professionally presented?
-      Is the relationship between the learning content, activities, and stated
-      objectives clear and effective within this segment?
-    weight: 1.0
-    scoring_guide:
-      low: "1-3: unclear relationship between components"
-      mid: "4-6: Mostly current but some alignment gaps"
-      high: "7-10: All materials aligned, current, and professionally presented"
-
 course_rubrics:
   - id: prerequisite_alignment
     name: "Prerequisite Alignment"
     description: >
       Across the whole course, are foundational concepts introduced before
-      dependent ones? Are prerequisites clearly stated when assumed?
-      Does the course ordering respect the learner's expected knowledge base?
+      dependent ones? Do the assumed prerequisites match the explicitly stated
+      Prerequisites from the Course Metadata? Does the course ordering respect
+      the Target Audience's expected knowledge base?
     weight: 1.0
     scoring_guide:
       low: "1-3: Concepts used before introduction, prerequisites unstated or incorrect"
@@ -108,9 +98,10 @@ course_rubrics:
   - id: business_relevance
     name: "Business Relevance"
     description: >
-      Are specific, practical takeaways immediately applicable to learner learning outcomes?
-      Does the overall course directly address real-world performance gaps that the
-      target audience faces?
+      Are specific, practical takeaways immediately applicable to the stated
+      Learning Outcomes from the Course Metadata? Does the overall course
+      directly address real-world performance gaps that the specified
+      Target Audience faces?
     weight: 1.0
     scoring_guide:
       low: "1-3: Course content is theoretical with no practical application"
@@ -128,3 +119,16 @@ course_rubrics:
       low: "1-3: Jarring module-to-module transitions, disconnected topics, abrupt jumps"
       mid: "4-6: Some rough inter-module transitions but overall followable"
       high: "7-10: Smooth, logical flow between modules throughout the entire course"
+
+  - id: instructional_alignment
+    name: "Instructional Alignment"
+    description: >
+      Across the entire course, are the learning content, activities, and stated 
+      Learning Outcomes (from the Course Metadata) clearly aligned? Do the modules 
+      collectively deliver on the course's explicit learning objectives? Are 
+      instructional strategies consistent with the defined Target Audience and Level?
+    weight: 1.0
+    scoring_guide:
+      low: "1-3: Significant misalignment between stated objectives and course content; outcomes not addressed"
+      mid: "4-6: Partial alignment — some modules deliver on outcomes, others diverge"
+      high: "7-10: Course content, activities, and objectives are fully aligned across all modules"

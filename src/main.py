@@ -141,7 +141,7 @@ def main():
                 eval_batch = evaluator.evaluate_batch(metadata, batch)
                 evaluated_segments.extend(eval_batch)
 
-            # Step 4: Course Gate — single capstone call (4 holistic rubrics)
+            # Step 4: Course Gate — single capstone call (holistic rubrics)
             # Skip if no instructional segments exist: scoring from metadata alone is misleading.
             has_instructional = any(s.segment_type == "instructional" for s in segments)
             non_instructional_raw = [s for s in segments if s.segment_type != "instructional"]
@@ -151,13 +151,19 @@ def main():
                     "Course Gate requires module content summaries to give meaningful scores."
                 )
                 course_assessment = evaluator._make_incomplete_course_assessment()
+                is_partial_course = False
             else:
                 logger.info("Step 4/5: Course Gate Evaluation (capstone)")
-                course_assessment = evaluator.evaluate_course(
+                course_assessment, is_partial_course = evaluator.evaluate_course(
                     metadata=metadata,
                     evaluated_segments=evaluated_segments,
                     non_instructional_segments=non_instructional_raw,
                 )
+                if is_partial_course:
+                    logger.info(
+                        "[Course Gate] File identified as a partial course fragment — "
+                        "scoring adjusted to avoid penalising absent modules."
+                    )
 
             # Step 5: Aggregate & Export
             logger.info("Step 5/5: Aggregation and Export")
