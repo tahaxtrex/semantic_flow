@@ -194,7 +194,7 @@ class LLMEvaluator:
 
     _MODULE_SCORE_FIELDS = [
         "goal_focus", "text_readability", "pedagogical_clarity",
-        "example_concreteness", "example_coherence", "instructional_alignment",
+        "example_concreteness", "example_coherence",
     ]
     _MODULE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _MODULE_SCORE_FIELDS]
 
@@ -286,7 +286,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
             segment_type=segment.segment_type,
             scores=ModuleScores(
                 goal_focus=0, text_readability=0, pedagogical_clarity=0,
-                example_concreteness=0, example_coherence=0, instructional_alignment=0,
+                example_concreteness=0, example_coherence=0,
             ),
             reasoning=ModuleReasoning(),
             summary="",
@@ -313,7 +313,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                 logger.warning(f"Partial/invalid module evaluation for segment {segment.segment_id}: {e}. Marking as incomplete.")
                 scores = ModuleScores(
                     goal_focus=0, text_readability=0, pedagogical_clarity=0,
-                    example_concreteness=0, example_coherence=0, instructional_alignment=0,
+                    example_concreteness=0, example_coherence=0,
                 )
                 reasoning = ModuleReasoning()
                 summary = ""
@@ -384,7 +384,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                     segment_type=segment.segment_type,
                     scores=ModuleScores(
                         goal_focus=0, text_readability=0, pedagogical_clarity=0,
-                        example_concreteness=0, example_coherence=0, instructional_alignment=0,
+                        example_concreteness=0, example_coherence=0,
                     ),
                     reasoning=ModuleReasoning(),
                     summary="",
@@ -430,6 +430,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
     _COURSE_SCORE_FIELDS = [
         "prerequisite_alignment", "structural_usability",
         "business_relevance", "fluidity_continuity",
+        "instructional_alignment",  # ADR-016: moved from Module Gate
     ]
     _COURSE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _COURSE_SCORE_FIELDS]
 
@@ -461,12 +462,24 @@ This summary will be used as context in a subsequent holistic course-level evalu
     def _build_course_prompts(
         self,
         metadata: CourseMetadata,
-        evaluated_segments: List[EvaluatedSegment],
-        non_instructional_segments: List[Segment],
+        evaluated_segments: list,
+        non_instructional_segments: list,
+        is_partial_course: bool = False,
     ) -> Tuple[str, str]:
+        partial_notice = ""
+        if is_partial_course:
+            partial_notice = """
+
+> [!IMPORTANT]
+> PARTIAL COURSE FILE: This evaluation covers a FRAGMENT of a larger course.
+> The file does not contain the full Table of Contents or all course modules.
+> DO NOT penalise scores for absent modules, an incomplete table of contents,
+> or missing introductory material that exists in other file fragments.
+> Evaluate ONLY the content and structure that IS present in this fragment.
+"""
         system_prompt = f"""
 You are an expert pedagogical evaluator. You are performing a COURSE-LEVEL assessment.
-Your job is to evaluate the overall structure, coherence and relevance of the course as a whole — NOT individual segments.
+Your job is to evaluate the overall structure, coherence and relevance of the course as a whole — NOT individual segments.{partial_notice}
 
 COURSE METADATA:
 Title: {metadata.title}
@@ -477,7 +490,7 @@ Prerequisites: {', '.join(metadata.prerequisites) if metadata.prerequisites else
 Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
 Description: {metadata.description or 'Not provided'}
 
-COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
+COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
 {self.course_rubrics_yaml}
 """
 
@@ -518,10 +531,47 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
             scores=CourseScores(
                 prerequisite_alignment=0, structural_usability=0,
                 business_relevance=0, fluidity_continuity=0,
+                instructional_alignment=0,  # ADR-016
             ),
             reasoning=CourseReasoning(),
             overall_score=0.0,
         )
+
+    def _detect_partial_course(
+        self,
+        non_instructional_segments: list,
+        evaluated_segments: list,
+    ) -> bool:
+        """Return True when the file appears to be a fragment of a larger course.
+
+        Heuristic: a file is considered partial when BOTH of the following hold:
+        1. No non-instructional segment contains obvious TOC/preface text.
+        2. No instructional segment heading suggests a first chapter/module
+           (e.g. "Chapter 1", "Module 1", "Introduction").
+
+        When True, a disclaimer is injected into the Course Gate prompt so the
+        LLM does not penalise missing introductory material or module gaps that
+        live in separate PDF files (critic.v2.md Issue 3).
+        """
+        import re as _re
+        _TOC_SIGNALS = _re.compile(
+            r'\b(table of contents|preface|introduction|chapter\s*1|module\s*1)\b',
+            _re.IGNORECASE,
+        )
+        for seg in non_instructional_segments:
+            if _TOC_SIGNALS.search(getattr(seg, 'text', '') or ''):
+                return False
+            if _TOC_SIGNALS.search(getattr(seg, 'heading', '') or ''):
+                return False
+        _FIRST_CHAPTER_RE = _re.compile(
+            r'^(chapter\s*1\b|module\s*1\b|unit\s*1\b|introduction\b)',
+            _re.IGNORECASE,
+        )
+        for seg in evaluated_segments:
+            if getattr(seg, 'segment_type', '') == 'instructional':
+                if _FIRST_CHAPTER_RE.match(getattr(seg, 'heading', '') or ''):
+                    return False
+        return True
 
     def _call_claude_course(self, system_prompt: str, user_prompt: str) -> CourseAssessment:
         logger.info("[Course Gate] Running capstone course evaluation via Claude")
@@ -571,8 +621,8 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
         metadata: CourseMetadata,
         evaluated_segments: List[EvaluatedSegment],
         non_instructional_segments: Optional[List[Segment]] = None,
-    ) -> CourseAssessment:
-        """COURSE GATE: Single capstone call evaluating the full course on 4 holistic rubrics.
+    ) -> Tuple[CourseAssessment, bool]:
+        """COURSE GATE: Single capstone call evaluating the full course on holistic rubrics.
 
         Args:
             metadata: Extracted course metadata.
@@ -580,22 +630,28 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
             non_instructional_segments: Raw Segment objects for TOC/Preface to give structural context.
 
         Returns:
-            CourseAssessment with 4 scores, rationales, and an overall_score.
+            Tuple of (CourseAssessment, is_partial_course).
+            is_partial_course is True when the file appears to be a fragment of a larger course.
         """
         non_instructional_segments = non_instructional_segments or []
+        is_partial = self._detect_partial_course(non_instructional_segments, evaluated_segments)
+        if is_partial:
+            logger.info(
+                "[Course Gate] Partial-course file detected — injecting fragment disclaimer into prompt."
+            )
         system_prompt, user_prompt = self._build_course_prompts(
-            metadata, evaluated_segments, non_instructional_segments
+            metadata, evaluated_segments, non_instructional_segments, is_partial
         )
 
         try:
             if self.anthropic_client:
-                return self._retry_call(
+                assessment = self._retry_call(
                     lambda: self._call_claude_course(system_prompt, user_prompt),
                     "Claude",
                     1  # Course Gate is always 1 call
                 )
             elif self.gemini_client:
-                return self._retry_call(
+                assessment = self._retry_call(
                     lambda: self._call_gemini_course(system_prompt, user_prompt),
                     "Gemini",
                     1
@@ -604,4 +660,6 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these 4 dimensions):
                 raise ValueError("No API client configured.")
         except Exception as e:
             logger.error(f"[Course Gate] Course evaluation failed after all retries: {e}")
-            return self._make_incomplete_course_assessment()
+            return self._make_incomplete_course_assessment(), is_partial
+
+        return assessment, is_partial

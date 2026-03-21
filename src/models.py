@@ -35,7 +35,6 @@ class ModuleScores(BaseModel):
     pedagogical_clarity: int
     example_concreteness: int
     example_coherence: int
-    instructional_alignment: int
 
 
 class ModuleReasoning(BaseModel):
@@ -44,7 +43,6 @@ class ModuleReasoning(BaseModel):
     pedagogical_clarity_rationale: str = ""
     example_concreteness_rationale: str = ""
     example_coherence_rationale: str = ""
-    instructional_alignment_rationale: str = ""
 
 
 class EvaluatedSegment(Segment):
@@ -63,6 +61,7 @@ class CourseScores(BaseModel):
     structural_usability: int
     business_relevance: int
     fluidity_continuity: int
+    instructional_alignment: int  # ADR-016: cross-module alignment belongs at Course Gate
 
 
 class CourseReasoning(BaseModel):
@@ -70,6 +69,7 @@ class CourseReasoning(BaseModel):
     structural_usability_rationale: str = ""
     business_relevance_rationale: str = ""
     fluidity_continuity_rationale: str = ""
+    instructional_alignment_rationale: str = ""  # ADR-016
 
 
 class CourseAssessment(BaseModel):

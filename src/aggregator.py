@@ -19,15 +19,18 @@ class ScoreAggregator:
     """
 
     # Module Gate dimensions — must match ModuleScores fields in models.py
+    # ADR-028: instructional_alignment moved to Course Gate
     _MODULE_DIMENSIONS = [
         "goal_focus", "text_readability", "pedagogical_clarity",
-        "example_concreteness", "example_coherence", "instructional_alignment",
+        "example_concreteness", "example_coherence",
     ]
 
     # Course Gate dimensions — must match CourseScores fields in models.py
+    # ADR-028: instructional_alignment added from Module Gate
     _COURSE_DIMENSIONS = [
         "prerequisite_alignment", "structural_usability",
         "business_relevance", "fluidity_continuity",
+        "instructional_alignment",
     ]
 
     def aggregate(
@@ -85,7 +88,7 @@ class ScoreAggregator:
                 for dim in self._MODULE_DIMENSIONS:
                     module_overall[dim] = round(module_overall[dim], 2)
 
-        # Module Gate overall: simple mean of all 6 dimension scores
+        # Module Gate overall: simple mean of all 5 dimension scores (ADR-028)
         dim_scores = [v for v in module_overall.values()]
         module_gate_score = round(sum(dim_scores) / len(dim_scores), 2) if dim_scores else 0.0
         module_overall["overall_score"] = module_gate_score
@@ -99,7 +102,8 @@ class ScoreAggregator:
             f"Course Gate scores: prerequisite_alignment={course_assessment.scores.prerequisite_alignment}, "
             f"structural_usability={course_assessment.scores.structural_usability}, "
             f"business_relevance={course_assessment.scores.business_relevance}, "
-            f"fluidity_continuity={course_assessment.scores.fluidity_continuity}. "
+            f"fluidity_continuity={course_assessment.scores.fluidity_continuity}, "
+            f"instructional_alignment={course_assessment.scores.instructional_alignment}. "
             f"Course Gate Overall: {course_assessment.overall_score}"
         )
 

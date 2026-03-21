@@ -312,3 +312,93 @@ def test_is_copyright_page_single_keyword_is_not_enough():
     """A single copyright keyword alone (below threshold) → False."""
     text = "This chapter is about attribution in academic writing."
     assert _is_copyright_page(text) is False
+
+
+# ============================================================================
+# critic.v2.md — Issue 1: Running header rejection
+# ============================================================================
+
+def test_classify_known_running_header_not_frontmatter():
+    """Known OpenStax running header should NOT trigger frontmatter classification."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    result = segmenter._classify_segment(
+        "Access. The future of education.",
+        "This chapter covers database normalization and SQL joins."
+    )
+    assert result == "instructional", \
+        "A known running header heading must not cause frontmatter classification."
+
+
+def test_classify_openstax_header_variant_not_frontmatter():
+    """'Access for free at openstax.org' variant must also be ignored."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    result = segmenter._classify_segment(
+        "Access for free at openstax.org",
+        "Relational database systems organize data into tables."
+    )
+    assert result == "instructional"
+
+
+# ============================================================================
+# critic.v2.md — Issue 2: Glossary / Summary / Assessment segment types
+# ============================================================================
+
+def test_classify_key_terms_is_glossary():
+    """Heading 'Key Terms' → glossary."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    assert segmenter._classify_segment("Key Terms", "access control: restricting...") == "glossary"
+
+
+def test_classify_key_term_singular_is_glossary():
+    """Heading 'Key Term' (singular) → glossary."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    assert segmenter._classify_segment("Key Term", "abstraction: the process of...") == "glossary"
+
+
+def test_classify_glossary_heading_is_glossary():
+    """Heading 'Glossary' → glossary."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    assert segmenter._classify_segment("Glossary", "algorithm: step-by-step procedure.") == "glossary"
+
+
+def test_classify_summary_heading_is_summary():
+    """Heading 'Summary' → summary."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    result = segmenter._classify_segment(
+        "Summary",
+        "• DBMS stores data in tables.\n• SQL is the standard language.\n• Indexes improve query speed."
+    )
+    assert result == "summary"
+
+
+def test_classify_chapter_summary_heading_is_summary():
+    """Heading 'Chapter Summary' → summary."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    assert segmenter._classify_segment("Chapter Summary", "In this chapter we covered...") == "summary"
+
+
+def test_classify_assessment_body_detected():
+    """Body with numbered questions and lettered answer options → assessment."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    text = (
+        "1. Which type stores structured data?\n"
+        "a. NoSQL\n"
+        "b. Relational\n"
+        "c. Data Lake\n"
+        "d. Document\n"
+        "2. SQL stands for?\n"
+        "a. Standard Query\n"
+        "b. Structured Query Language\n"
+        "c. Simple Query\n"
+        "d. None of the above\n"
+    )
+    assert segmenter._classify_segment(None, text) == "assessment"
+
+
+def test_classify_insufficient_options_not_assessment():
+    """Body with only 2 lettered options (below threshold=3) → NOT assessment."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    text = "1. Choose one:\na. Option A\nb. Option B\nSome paragraph here."
+    # Only 2 option lines and 1 question line → should NOT be classified as assessment
+    assert segmenter._classify_segment(None, text) != "assessment"
+

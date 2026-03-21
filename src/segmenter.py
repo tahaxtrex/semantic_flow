@@ -74,6 +74,28 @@ _FRONTMATTER_PATTERNS = [
     re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication|bibliography|glossary|index|appendix|abbreviations|list of figures|list of tables)\s*)$', re.IGNORECASE),
 ]
 
+# critic.v2.md Issue 1 — known publisher/platform running headers that must never
+# trigger frontmatter classification.  Compared lowercase-stripped.
+_KNOWN_RUNNING_HEADERS: frozenset = frozenset({
+    "access. the future of education.",
+    "access for free at openstax.org",
+    "access for free at",
+    "openstax",
+})
+
+# critic.v2.md Issue 2 — end-of-chapter structural patterns that should NOT be
+# scored as instructional content.
+_GLOSSARY_HEADING_PATTERNS = [
+    re.compile(r'^(key\s+terms?|glossary)$', re.IGNORECASE),
+]
+_SUMMARY_HEADING_PATTERNS = [
+    re.compile(r'^(summary|chapter\s+summary|module\s+summary|section\s+summary)$', re.IGNORECASE),
+]
+# Lines that are a lettered answer option: "a. ...", "b. ...", "c. ...", "d. ..."
+_ASSESSMENT_OPTION_RE = re.compile(r'^[a-d]\.\s+\S', re.IGNORECASE)
+# Lines that look like numbered questions: "1. ...", "2) ..."
+_NUMBERED_QUESTION_RE = re.compile(r'^\d+[.)\s]\s*\S')
+
 # Heuristics to detect copyright / license pages by content density of legal keywords
 _COPYRIGHT_KEYWORDS = [
     'creative commons', 'all rights reserved', 'isbn', 'doi:', 'published by',
@@ -402,8 +424,23 @@ class SmartSegmenter:
     # ------------------------------------------------------------------
 
     def _classify_segment(self, heading: Optional[str], text: str) -> str:
-        """Classify a segment as instructional, exercise, solution, or reference_table."""
-        heading_l = (heading or "").lower()
+        """Classify a segment into one of:
+
+        - ``instructional``   : Main content that should be scored by the Module Gate.
+        - ``exercise``        : Practice problems / coding challenges — bypassed.
+        - ``solution``        : Model answers — bypassed.
+        - ``reference_table`` : Appendices, index pages — bypassed.
+        - ``frontmatter``     : TOC, preface, copyright — bypassed.
+        - ``glossary``        : Key-terms glossary — bypassed (critic.v2 Issue 2).
+        - ``summary``         : Chapter/module summary bullets — bypassed (critic.v2 Issue 2).
+        - ``assessment``      : Review/check-your-understanding questions — bypassed (critic.v2 Issue 2).
+        """
+        # critic.v2.md Issue 1 — reject known publisher running headers BEFORE
+        # any pattern matching fires so they never trigger frontmatter.
+        heading_l = (heading or "").lower().strip()
+        if heading_l in _KNOWN_RUNNING_HEADERS:
+            heading = None
+            heading_l = ""
 
         # Reference table: heading matches appendix/table keywords
         for pat in _REFERENCE_TABLE_PATTERNS:
@@ -426,6 +463,23 @@ class SmartSegmenter:
 
         if heading_is_exercise or (exercise_line_count >= 3 and exercise_line_count >= len(lines) * 0.4):
             return "exercise"
+
+        # critic.v2.md Issue 2a — Glossary heading (e.g. "Key Terms", "Glossary")
+        for pat in _GLOSSARY_HEADING_PATTERNS:
+            if pat.match(heading_l):
+                return "glossary"
+
+        # critic.v2.md Issue 2b — Summary heading
+        for pat in _SUMMARY_HEADING_PATTERNS:
+            if pat.match(heading_l):
+                return "summary"
+
+        # critic.v2.md Issue 2c — Assessment body: numbered questions with a/b/c/d options.
+        # Require at least 2 numbered question lines AND at least 3 lettered option lines.
+        option_lines = sum(1 for ln in lines if _ASSESSMENT_OPTION_RE.match(ln))
+        question_lines = sum(1 for ln in lines if _NUMBERED_QUESTION_RE.match(ln))
+        if option_lines >= 3 and question_lines >= 2:
+            return "assessment"
 
         # Frontmatter / Metadata (TOC, Preface, History, etc.)
         for pat in _FRONTMATTER_PATTERNS:
