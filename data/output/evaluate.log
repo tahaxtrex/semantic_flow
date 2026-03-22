@@ -859,3 +859,21 @@ anthropic.AuthenticationError: Error code: 401 - {'type': 'error', 'error': {'ty
 2026-03-21 16:17:44,229 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
 2026-03-21 16:17:44,229 [INFO] SemanticFlowEvaluator: Successfully evaluated secondpart.pdf -> secondpart_evaluation.json
 2026-03-21 16:17:44,229 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-03-22 13:36:01,678 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-03-22 13:36:01,678 [INFO] SemanticFlowEvaluator: Input: data/courses
+2026-03-22 13:36:01,678 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-03-22 13:36:01,678 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-03-22 13:36:01,678 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-03-22 13:36:02,421 [INFO] SemanticFlowEvaluator: --- Processing: communication.pdf ---
+2026-03-22 13:36:02,422 [INFO] SemanticFlowEvaluator: Step 1/5: Metadata Extraction
+2026-03-22 13:36:02,422 [INFO] SemanticFlowEvaluator: Step 2/5: Deterministic Segmentation
+2026-03-22 13:36:05,629 [INFO] SemanticFlowEvaluator: Step 3/5: Module Gate Evaluation (22 segments)
+2026-03-22 13:36:05,629 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 1/5 (5 segments)
+2026-03-22 13:36:46,423 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 2/5 (5 segments)
+2026-03-22 12:38:15,482 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 3/5 (5 segments)
+2026-03-22 12:38:59,919 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 4/5 (5 segments)
+2026-03-22 12:39:31,554 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 5/5 (2 segments)
+2026-03-22 12:39:47,014 [INFO] SemanticFlowEvaluator: Step 4/5: Course Gate Evaluation (capstone)
+2026-03-22 12:40:01,756 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
+2026-03-22 12:40:01,757 [INFO] SemanticFlowEvaluator: Successfully evaluated communication.pdf -> communication_evaluation.json
+2026-03-22 12:40:01,758 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
