@@ -842,3 +842,20 @@ anthropic.AuthenticationError: Error code: 401 - {'type': 'error', 'error': {'ty
 2026-03-21 11:33:07,382 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
 2026-03-21 11:33:07,383 [INFO] SemanticFlowEvaluator: Successfully evaluated firstpart.pdf -> firstpart_evaluation.json
 2026-03-21 11:33:07,383 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-03-21 16:15:04,192 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-03-21 16:15:04,193 [INFO] SemanticFlowEvaluator: Input: data/courses
+2026-03-21 16:15:04,193 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-03-21 16:15:04,193 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-03-21 16:15:04,193 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-03-21 16:15:05,978 [INFO] SemanticFlowEvaluator: --- Processing: secondpart.pdf ---
+2026-03-21 16:15:05,978 [INFO] SemanticFlowEvaluator: Step 1/5: Metadata Extraction
+2026-03-21 16:15:05,979 [INFO] SemanticFlowEvaluator: Step 2/5: Deterministic Segmentation
+2026-03-21 16:16:30,133 [INFO] SemanticFlowEvaluator: Step 3/5: Module Gate Evaluation (12 segments)
+2026-03-21 16:16:30,133 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 1/3 (5 segments)
+2026-03-21 16:17:00,915 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 2/3 (5 segments)
+2026-03-21 16:17:30,714 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 3/3 (2 segments)
+2026-03-21 16:17:30,714 [INFO] SemanticFlowEvaluator: Step 4/5: Course Gate Evaluation (capstone)
+2026-03-21 16:17:44,229 [INFO] SemanticFlowEvaluator: [Course Gate] File identified as a partial course fragment — scoring adjusted to avoid penalising absent modules.
+2026-03-21 16:17:44,229 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
+2026-03-21 16:17:44,229 [INFO] SemanticFlowEvaluator: Successfully evaluated secondpart.pdf -> secondpart_evaluation.json
+2026-03-21 16:17:44,229 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.

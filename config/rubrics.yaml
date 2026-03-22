@@ -127,7 +127,7 @@ course_rubrics:
       Learning Outcomes (from the Course Metadata) clearly aligned? Do the modules 
       collectively deliver on the course's explicit learning objectives? Are 
       instructional strategies consistent with the defined Target Audience and Level?
-    weight: 1.0
+    weight: 1.0j
     scoring_guide:
       low: "1-3: Significant misalignment between stated objectives and course content; outcomes not addressed"
       mid: "4-6: Partial alignment — some modules deliver on outcomes, others diverge"
