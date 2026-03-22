@@ -14,6 +14,6 @@ ai/
 tests
 tests/
 /tests
-
+src/__pycache__/
 
 data/output/evaluation.log

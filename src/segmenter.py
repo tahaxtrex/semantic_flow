@@ -72,6 +72,7 @@ _REFERENCE_TABLE_PATTERNS = [
 ]
 _FRONTMATTER_PATTERNS = [
     re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication|bibliography|glossary|index|appendix|abbreviations|list of figures|list of tables)\s*)$', re.IGNORECASE),
+    re.compile(r'^(about\s+\w[\w\s]+|coverage\s+and\s+scope|pedagogical\s+foundation)', re.IGNORECASE),
 ]
 
 # critic.v2.md Issue 1 — known publisher/platform running headers that must never
@@ -469,6 +470,10 @@ class SmartSegmenter:
             if pat.match(heading_l):
                 return "glossary"
 
+        # Glossary body fallback
+        if re.search(r'(^|\n)key\s+terms(\n|$)', text[:200], re.IGNORECASE):
+            return "glossary"
+
         # critic.v2.md Issue 2b — Summary heading
         for pat in _SUMMARY_HEADING_PATTERNS:
             if pat.match(heading_l):
@@ -767,20 +772,31 @@ class SmartSegmenter:
 
         At each step merges the pair whose combined text is shortest, provided the
         combined length does not exceed self.max_chars (avoids arbitrary page thresholds).
+        Prevents merging across strong chapter boundaries.
         """
         blocks = list(blocks)  # copy
         while len(blocks) > 1:
-            # Find adjacent pair with smallest combined text length
-            best_i = min(range(len(blocks) - 1),
-                         key=lambda i: len(blocks[i][1]) + len(blocks[i+1][1]))
+            # Find mergeable pairs
+            mergeable = []
+            for i in range(len(blocks) - 1):
+                h0, t0 = blocks[i]
+                h1, t1 = blocks[i + 1]
+                if len(t0) + len(t1) < self.max_chars:
+                    # Avoid merging if the second block is a strong chapter start
+                    if h1 and re.match(r'^(chapter|module|unit|part)\s+\d+', h1.strip(), re.IGNORECASE):
+                        continue
+                    mergeable.append(i)
+
+            if not mergeable:
+                break
+
+            # Find adjacent pair with smallest combined text length among mergeable
+            best_i = min(mergeable, key=lambda i: len(blocks[i][1]) + len(blocks[i+1][1]))
             h0, t0 = blocks[best_i]
             h1, t1 = blocks[best_i + 1]
-            
-            if len(t0) + len(t1) < self.max_chars:
-                blocks[best_i] = (h0 if h0 else h1, t0 + "\n\n" + t1)
-                blocks.pop(best_i + 1)
-            else:
-                break
+
+            blocks[best_i] = (h0 if h0 else h1, t0 + "\n\n" + t1)
+            blocks.pop(best_i + 1)
                 
         logger.debug(f"Block merge: resulted in {len(blocks)} blocks")
         return blocks
