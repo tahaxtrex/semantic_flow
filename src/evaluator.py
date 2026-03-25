@@ -30,15 +30,18 @@ class LLMEvaluator:
     """Two-Gate pedagogical evaluator using Claude or Gemini.
 
     Gate 1 — Module Gate:
-        Evaluates each instructional segment in batches on 6 rubrics (readability,
-        clarity, examples, goal focus, instructional alignment). Each segment also
-        produces a 1-2 sentence content summary for use in the Course Gate.
+        Evaluates each instructional segment in batches on 5 rubrics (goal focus,
+        readability, clarity, example concreteness, example coherence).
+        Each segment also produces a 1-2 sentence content summary for use in
+        the Course Gate. Cross-segment context is injected to detect repetition
+        and non-progressive examples (ADR-030).
 
     Gate 2 — Course Gate:
         Executes a single capstone call once ALL Module Gate evaluations are done.
-        Receives the course metadata, the non-instructional segment text (TOC, Preface),
-        and the ordered list of per-segment summaries. Scores 4 holistic rubrics
-        (prerequisite alignment, structural usability, business relevance, fluidity).
+        Receives the course metadata, non-instructional segment text (TOC, Preface),
+        ordered per-segment summaries with Module Gate scores, and a quality
+        summary. Scores 5 holistic rubrics (prerequisite alignment, structural
+        usability, business relevance, fluidity, instructional alignment).
     """
 
     def __init__(self, config_path: Path, preferred_model: str = "claude"):
@@ -237,7 +240,24 @@ class LLMEvaluator:
     # MODULE GATE — Prompt Builder
     # -------------------------------------------------------------------------
 
-    def _build_module_batch_prompts(self, metadata: CourseMetadata, segments: List[Segment]) -> Tuple[str, str]:
+    def _build_module_batch_prompts(
+        self,
+        metadata: CourseMetadata,
+        segments: List[Segment],
+        previous_summaries: Optional[List[str]] = None,
+    ) -> Tuple[str, str]:
+        # ADR-030: Build cross-segment context
+        cross_segment_ctx = ""
+        if previous_summaries:
+            narrative = " | ".join(previous_summaries[-5:])  # last 5, truncated
+            if len(narrative) > 500:
+                narrative = narrative[:500] + "..."
+            cross_segment_ctx = f"""\n\nCOURSE NARRATIVE SO FAR (previous segments covered):
+{narrative}
+
+Use this context to detect repetition, non-progressive examples, and redundant content
+across segments. If a segment repeats topics already covered, note this in your rationale."""
+
         system_prompt = f"""
 You are an expert pedagogical evaluator. Evaluate the provided course segments based strictly on the following MODULE rubrics.
 
@@ -246,15 +266,30 @@ Title: {metadata.title}
 Target Audience: {metadata.target_audience}
 Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
 
-MODULE RUBRICS (score each segment on ONLY these 6 dimensions):
+MODULE RUBRICS (score each segment on ONLY these 5 dimensions):
 {self.module_rubrics_yaml}
 
-SCORING PROCEDURE (apply this for every rubric, for every segment):
-Before committing a score for each dimension, first identify:
-  1. Specific evidence from the segment text that is relevant to this rubric.
-  2. Whether that evidence points to a score above the midpoint (>5) or below it (<5), and why.
-Only after this brief reasoning step should you finalise the score and write the rationale.
-This prevents regression-to-the-mean and ensures each score is independently justified.
+SCORING PROCEDURE — Three-Step Calibration (apply for every rubric, every segment):
+For each rubric dimension, follow these three steps IN ORDER before committing a score:
+
+  Step 1 — IDENTIFY: Find 2-3 specific evidence pieces from the segment text relevant to this rubric.
+           Quote short phrases. If no evidence exists, the score must be in band 1-3.
+
+  Step 2 — ANCHOR to one of these bands based on evidence quality:
+           1-3 (Poor):      Missing, wrong, or fundamentally inadequate
+           4-6 (Adequate):  Present but generic, trivial, or incomplete
+           7-8 (Good):      Solid, well-crafted, clearly effective
+           9-10 (Excellent): Exceptional, publishable quality, best-in-class
+
+  Step 3 — DIFFERENTIATE within the band. Pick the specific integer.
+           A score of 7 vs 8 must be justified by a concrete quality difference.
+
+CALIBRATION ANCHORS (mandatory reference points):
+  - example_concreteness: Trivial variables (a=5, x=[1,2,3], "hello world") → max 6.
+    Realistic scenarios (student records, data processing) → 7+.
+  - goal_focus: Content that digresses into unrelated topics → max 5.
+  - text_readability: Dense walls of code with no explanatory prose → max 5.
+{cross_segment_ctx}
 
 EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
 - Figures referenced in the text (e.g. "Fig. 1.1") are not available as images. Evaluate figure references positively as indicators of visual support.
@@ -267,9 +302,12 @@ For each segment, you must also provide a 1-2 sentence 'summary' of the segment'
 This summary will be used as context in a subsequent holistic course-level evaluation.
 """
         user_prompt = "Score the following segments:\n\n"
-        for s in segments:
+        for i, s in enumerate(segments):
             user_prompt += f"--- SEGMENT ID: {s.segment_id} ---\n"
             user_prompt += f"Heading: {s.heading or 'None'}\n"
+            # ADR-030: inject previous segment summary for cross-segment awareness
+            if i > 0 and segments[i-1].segment_id in [seg.segment_id for seg in segments[:i]]:
+                user_prompt += f"(Previous segment covered: see segment {segments[i-1].segment_id} above)\n"
             user_prompt += f"Text:\n{s.text}\n\n"
 
         return system_prompt.strip(), user_prompt.strip()
@@ -366,10 +404,15 @@ This summary will be used as context in a subsequent holistic course-level evalu
             raise
         return self._match_module_evaluations(data, segments)
 
-    def evaluate_batch(self, metadata: CourseMetadata, segments: List[Segment]) -> List[EvaluatedSegment]:
-        """MODULE GATE: Evaluate a batch of segments on the 6 Module rubrics.
+    def evaluate_batch(self, metadata: CourseMetadata, segments: List[Segment],
+                       previous_summaries: Optional[List[str]] = None) -> List[EvaluatedSegment]:
+        """MODULE GATE: Evaluate a batch of segments on the 5 Module rubrics.
         Non-instructional segments are passed through with 0 scores and no summary.
-        Instructional segments get 6 scores + a content summary for the Course Gate.
+        Instructional segments get 5 scores + a content summary for the Course Gate.
+
+        Args:
+            previous_summaries: Summaries from previously evaluated batches
+                for cross-segment context injection (ADR-030).
         """
         results = []
         instructional_segments = []
@@ -395,7 +438,9 @@ This summary will be used as context in a subsequent holistic course-level evalu
         if not instructional_segments:
             return sorted(results, key=lambda x: x.segment_id)
 
-        system_prompt, user_prompt = self._build_module_batch_prompts(metadata, instructional_segments)
+        system_prompt, user_prompt = self._build_module_batch_prompts(
+            metadata, instructional_segments, previous_summaries
+        )
 
         try:
             if self.anthropic_client:
@@ -513,13 +558,50 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
             if s.segment_type == "instructional" and s.summary
         ]
         if instructional_with_summary:
-            user_prompt += "\n## Sequential Module Summaries (in order)\n"
-            user_prompt += "The following summaries represent each module/chapter of the course in order:\n\n"
+            user_prompt += "\n## Sequential Module Summaries (in order, with Module Gate quality scores)\n"
+            user_prompt += "The following summaries represent each module/chapter of the course in order.\n"
+            user_prompt += "Module Gate scores are provided for context — use them to calibrate your assessment.\n\n"
             for seg in sorted(instructional_with_summary, key=lambda x: x.segment_id):
                 heading_label = f"**{seg.heading}**" if seg.heading else f"Module {seg.segment_id}"
-                user_prompt += f"- {heading_label}: {seg.summary}\n"
+                # ADR-030 (critic.v3 Issue 9): append Module Gate scores to each summary
+                scores_dict = seg.scores.model_dump() if hasattr(seg.scores, 'model_dump') else {}
+                score_str = ", ".join(f"{k}={v}" for k, v in scores_dict.items()) if scores_dict else ""
+                user_prompt += f"- {heading_label}: {seg.summary}"
+                if score_str:
+                    user_prompt += f" [Module Gate: {score_str}]"
+                user_prompt += "\n"
 
-        user_prompt += "\n\nNow evaluate the course holistically on the 4 Course Gate rubrics."
+            # ADR-030: MODULE GATE QUALITY SUMMARY section
+            all_scores = []
+            for seg in instructional_with_summary:
+                scores_dict = seg.scores.model_dump() if hasattr(seg.scores, 'model_dump') else {}
+                seg_avg = sum(scores_dict.values()) / max(len(scores_dict), 1) if scores_dict else 0
+                all_scores.append((seg.segment_id, seg.heading, seg_avg, scores_dict))
+
+            if all_scores:
+                overall_avg = sum(s[2] for s in all_scores) / len(all_scores)
+                lowest = min(all_scores, key=lambda s: s[2])
+                user_prompt += f"\n## MODULE GATE QUALITY SUMMARY\n"
+                user_prompt += f"- Average Module Gate score across {len(all_scores)} segments: {overall_avg:.1f}/10\n"
+                user_prompt += f"- Lowest-scoring segment: ID {lowest[0]} ({lowest[1] or 'untitled'}) — avg {lowest[2]:.1f}\n"
+                # Detect repetition: segments with very similar summaries
+                summaries_text = [s.summary.lower() for s in instructional_with_summary if s.summary]
+                repeated_topics = []
+                for i_s in range(len(summaries_text)):
+                    for j_s in range(i_s + 1, len(summaries_text)):
+                        # Simple word overlap check
+                        words_a = set(summaries_text[i_s].split())
+                        words_b = set(summaries_text[j_s].split())
+                        if len(words_a) > 3 and len(words_b) > 3:
+                            overlap = len(words_a & words_b) / min(len(words_a), len(words_b))
+                            if overlap > 0.6:
+                                seg_a = instructional_with_summary[i_s].segment_id
+                                seg_b = instructional_with_summary[j_s].segment_id
+                                repeated_topics.append(f"Segments {seg_a} and {seg_b}")
+                if repeated_topics:
+                    user_prompt += f"- ⚠️ Potential content repetition detected: {'; '.join(repeated_topics[:5])}\n"
+
+        user_prompt += f"\n\nNow evaluate the course holistically on the Course Gate rubrics listed above."
         return system_prompt.strip(), user_prompt.strip()
 
     # -------------------------------------------------------------------------

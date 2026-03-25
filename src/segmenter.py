@@ -59,8 +59,14 @@ _CID_RE = re.compile(r'\(cid:\d+\)')
 _FIG_REF_RE = re.compile(r'Fig\.?\s*(\d+\.\d+)\b', re.IGNORECASE)
 
 # Segment type detection patterns (critic.md Issue 8)
+# ADR-034 (critic.v3 Issue 3): Exercise heading pattern now requires exercise-specific
+# keywords AFTER the number. '1. Built-in functions' no longer triggers.
+_EXERCISE_HEADING_PATTERN = re.compile(
+    r'^\d+[.)\s]\s*(exercise|practice|problem|question|write\s+a\s+program|assignment|task\s+\d)',
+    re.IGNORECASE,
+)
 _EXERCISE_PATTERNS = [
-    re.compile(r'^(\d+[\.\)]|Practice\s+\d|Exercise\s+\d|Q\d+[\.\)])', re.IGNORECASE),
+    re.compile(r'^(Practice\s+\d|Exercise\s+\d|Q\d+[\.\)])', re.IGNORECASE),
     re.compile(r'\b(write a program|create a|implement|design a)\b', re.IGNORECASE),
 ]
 _SOLUTION_PATTERNS = [
@@ -73,7 +79,20 @@ _REFERENCE_TABLE_PATTERNS = [
 _FRONTMATTER_PATTERNS = [
     re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication|bibliography|glossary|index|appendix|abbreviations|list of figures|list of tables)\s*)$', re.IGNORECASE),
     re.compile(r'^(about\s+\w[\w\s]+|coverage\s+and\s+scope|pedagogical\s+foundation)', re.IGNORECASE),
+    # ADR-034 (critic.v3 Issue 4): Institutional boilerplate
+    re.compile(r'(UGC|AICTE|JNTUH|JNTU|affiliated\s+to|accredited\s+by|autonomous\s+institution)', re.IGNORECASE),
+    re.compile(r'(syllabus|course\s+code|credit\s+hours|scheme\s+of\s+instruction)', re.IGNORECASE),
 ]
+# ADR-029 (critic.v3 Issue 1): Bold labels that are too common to be headings
+_BOLD_LABEL_EXCLUSIONS = frozenset({
+    'example', 'syntax', 'note', 'output', 'input', 'definition',
+    'program', 'result', 'solution', 'answer', 'explanation',
+})
+# ADR-029: Visual TOC line pattern (UNIT I ... 1, Chapter 3 ... 45, etc.)
+_VISUAL_TOC_LINE_RE = re.compile(
+    r'(UNIT|Chapter|Module|Part)\s+([\dIVXivx]+)[^\d]*?(\d{1,4})\s*$',
+    re.IGNORECASE,
+)
 
 # critic.v2.md Issue 1 — known publisher/platform running headers that must never
 # trigger frontmatter classification.  Compared lowercase-stripped.
@@ -135,10 +154,12 @@ class SmartSegmenter:
     - Issue 9: CID artifacts replaced with [?]
     """
 
-    def __init__(self, pdf_path: Path, max_chars: int = 8000, min_chars: int = 600):
+    def __init__(self, pdf_path: Path, max_chars: int = 8000, min_chars: int = 600,
+                 bold_as_header: bool = True):
         self.pdf_path = Path(pdf_path)
         self.max_chars = max_chars
         self.min_chars = min_chars  # kept for backward compat; not used in main merge path
+        self.bold_as_header = bold_as_header  # ADR-029: toggle bold heading detection
 
     def segment(self) -> List[Segment]:
         """Extract text from PDF, group by major headers, and apply fallback chunking.
@@ -159,10 +180,19 @@ class SmartSegmenter:
             )
             raw_blocks = toc_blocks
         else:
-            logger.info(
-                f"No usable TOC — falling back to font-heuristic segmentation."
-            )
-            raw_blocks, page_count = self._extract_blocks_with_headers()
+            # --- Tier 2: UNIT content markers (inspired by segmenterinspo) ---
+            unit_blocks, page_count = self._extract_unit_markers()
+            if unit_blocks:
+                logger.info(
+                    f"UNIT markers found with {len(unit_blocks)} blocks — "
+                    f"using marker-based segmentation."
+                )
+                raw_blocks = unit_blocks
+            else:
+                logger.info(
+                    f"No usable TOC or UNIT markers — falling back to font-heuristic."
+                )
+                raw_blocks, page_count = self._extract_blocks_with_headers()
 
         logger.info(f"PDF has {page_count} pages — merging short blocks...")
         merged_blocks = self._merge_short_blocks(raw_blocks)
@@ -421,6 +451,241 @@ class SmartSegmenter:
         return deduped
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Tier 2: UNIT content marker scan
+    # ------------------------------------------------------------------
+
+    def _extract_unit_markers(self) -> Tuple[List[Tuple[Optional[str], str]], int]:
+        """Scan ALL PDF pages for explicit UNIT markers to derive segment boundaries.
+
+        Searches each page's first ~200 characters for patterns like:
+          'UNIT – I', 'UNIT-1', 'UNIT I', 'UNIT – IV'
+
+        This covers university lecture notes (MRCET, JNTU, etc.) that have no
+        PDF bookmarks but use explicit UNIT markers at section starts.
+        Unlike the old visual TOC scanner (which only looked at pages 2-8 for
+        a printed contents table), this scans the entire document for live
+        markers, making it robust to PDFs where each unit starts mid-document.
+
+        Returns:
+            (blocks, page_count) if ≥2 UNIT markers found with monotonic pages.
+            ([], page_count) otherwise — caller falls through to font-heuristic.
+        """
+        _UNIT_MARKER_RE = re.compile(r'UNIT\s*[-\u2013]?\s*([IVX]+|\d+)', re.IGNORECASE)
+        _ROMAN_MAP = {
+            'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+            'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10,
+        }
+
+        try:
+            with pdfplumber.open(self.pdf_path) as pdf:
+                page_count = len(pdf.pages)
+
+                # Pass 1: Find pages with UNIT markers near the top
+                unit_pages = []
+                for pg_idx in range(page_count):
+                    text = (pdf.pages[pg_idx].extract_text() or '')[:300]
+                    m = _UNIT_MARKER_RE.search(text[:200])
+                    if not m:
+                        continue
+
+                    unit_id = m.group(1).strip().upper()
+                    if unit_id in _ROMAN_MAP:
+                        unit_num = _ROMAN_MAP[unit_id]
+                    elif unit_id.isdigit():
+                        unit_num = int(unit_id)
+                    else:
+                        continue
+
+                    # Title hint from text immediately after the marker
+                    after = text[m.end():].strip()
+                    title_line = after.split('\n')[0].strip()[:80]
+                    title_line = re.sub(r'^[-\u2013:\s]+', '', title_line).strip()
+                    unit_pages.append((unit_num, pg_idx, title_line))
+
+                # Deduplicate: keep first occurrence of each unit number
+                seen: set = set()
+                deduped = []
+                for unit_num, pg_idx, title in unit_pages:
+                    if unit_num not in seen:
+                        seen.add(unit_num)
+                        deduped.append((unit_num, pg_idx, title))
+
+                if len(deduped) < 2:
+                    logger.debug(f"Found {len(deduped)} UNIT marker(s) — too few.")
+                    return [], page_count
+
+                # Validate monotonicity
+                sorted_entries = sorted(deduped, key=lambda x: x[0])
+                pages = [p for _, p, _ in sorted_entries]
+                if not all(pages[i] < pages[i + 1] for i in range(len(pages) - 1)):
+                    logger.warning("UNIT markers non-monotonic — skipping.")
+                    return [], page_count
+
+                logger.info(
+                    f"Found {len(sorted_entries)} UNIT markers: "
+                    + ", ".join(f"Unit {u} @ p.{p+1}" for u, p, _ in sorted_entries)
+                )
+
+                # Compute median font size for code-block detection
+                all_sizes: List[float] = []
+                for page in pdf.pages:
+                    words = page.extract_words(extra_attrs=["size"])
+                    all_sizes.extend([w['size'] for w in words if 'size' in w])
+                all_sizes.sort()
+                median_size = all_sizes[len(all_sizes) // 2] if all_sizes else 10.0
+                header_threshold = median_size * 1.4
+
+                blocks: List[Tuple[Optional[str], str]] = []
+
+                # Frontmatter (pages before first unit)
+                first_unit_page = sorted_entries[0][1]
+                if first_unit_page > 0:
+                    fm_text = self._extract_page_range_text(
+                        pdf, 0, first_unit_page, header_threshold
+                    )
+                    if fm_text.strip():
+                        blocks.append(("Frontmatter", fm_text))
+
+                # Each unit
+                for i, (unit_num, start_page, title) in enumerate(sorted_entries):
+                    end_page = (
+                        sorted_entries[i + 1][1]
+                        if i + 1 < len(sorted_entries)
+                        else page_count
+                    )
+                    unit_text = self._extract_page_range_text(
+                        pdf, start_page, end_page, header_threshold
+                    )
+                    if unit_text.strip():
+                        heading = f"Unit {unit_num}: {title}" if title else f"Unit {unit_num}"
+                        blocks.append((heading, unit_text))
+
+                return blocks, page_count
+
+        except Exception as e:
+            logger.error(f"Error in UNIT marker extraction: {e}")
+            return [], page_count
+
+    # ------------------------------------------------------------------
+    # Shared: Extract and annotate text from a page range
+    # ------------------------------------------------------------------
+
+    def _extract_page_range_text(
+        self, pdf, start_page: int, end_page: int, header_threshold: float
+    ) -> str:
+        """Extract clean, annotated text from a contiguous range of PDF pages.
+
+        Shared by Tier 1 (TOC) and Tier 2 (UNIT markers). Applies:
+        - Body crop (top 10%, bottom 8%)
+        - Table detection + [TABLE: ...] annotation
+        - Word reconstruction + CID replacement
+        - [CODE]/[/CODE] markers for monospace blocks
+        - [FIGURE X.Y: caption] markers
+        - Page-number-only line suppression
+        """
+        page_texts = []
+
+        for pg_idx in range(start_page, end_page):
+            page = pdf.pages[pg_idx]
+            W = float(page.width)
+            H = float(page.height)
+            body = page.within_bbox((0, H * 0.10, W, H * 0.92))
+
+            raw_words = body.extract_words(extra_attrs=["size", "fontname"])
+            if not raw_words:
+                if _check_ocr_available():
+                    ocr_text = _ocr_page(self.pdf_path, pg_idx)
+                    if ocr_text:
+                        clean_lines = [
+                            ln for ln in ocr_text.splitlines()
+                            if ln.strip() and not re.fullmatch(r'\d+', ln.strip())
+                        ]
+                        if clean_lines:
+                            page_texts.append("\n".join(clean_lines))
+                continue
+
+            # Table detection
+            table_bboxes = []
+            table_annotations = []
+            try:
+                tables = body.find_tables()
+                for table in tables:
+                    bbox = table.bbox
+                    table_bboxes.append(bbox)
+                    try:
+                        extracted = table.extract()
+                        if extracted:
+                            table_text = "\n".join(
+                                " | ".join(
+                                    str(cell).strip() if cell is not None else ''
+                                    for cell in row
+                                )
+                                for row in extracted
+                                if any(cell is not None for cell in row)
+                            )
+                            annotation = (
+                                f"[TABLE:\n{table_text[:4000]}\n]"
+                                if table_text.strip() else "[TABLE]"
+                            )
+                        else:
+                            annotation = "[TABLE]"
+                    except Exception:
+                        annotation = "[TABLE]"
+                    table_annotations.append(annotation)
+            except Exception:
+                pass
+
+            filtered_words = [
+                w for w in raw_words
+                if not any(
+                    w['x0'] >= tx0 and w['x1'] <= tx1
+                    and w['top'] >= ttop and w['bottom'] <= tbot
+                    for (tx0, ttop, tx1, tbot) in table_bboxes
+                )
+            ]
+
+            lines = self._words_to_lines(filtered_words, header_threshold)
+
+            page_line_texts: List[str] = []
+            in_code_block = False
+
+            for ann_text in table_annotations:
+                page_line_texts.append(ann_text)
+
+            for line in lines:
+                text = line['text'].strip()
+                if not text or re.fullmatch(r'\d+', text):
+                    continue
+
+                # Figure caption annotation
+                fig_match = re.match(
+                    r'(Fig\.?\s*\d+\.\d+)\s+(.+)', text, re.IGNORECASE
+                )
+                if fig_match and not line['is_code'] and line['max_size'] < header_threshold:
+                    page_line_texts.append(
+                        f"[FIGURE {fig_match.group(1)}: {fig_match.group(2).strip()}]"
+                    )
+                    continue
+
+                if line['is_code'] and not in_code_block:
+                    page_line_texts.append("[CODE]")
+                    in_code_block = True
+                elif not line['is_code'] and in_code_block:
+                    page_line_texts.append("[/CODE]")
+                    in_code_block = False
+
+                page_line_texts.append(text)
+
+            if in_code_block:
+                page_line_texts.append("[/CODE]")
+
+            if page_line_texts:
+                page_texts.append("\n".join(page_line_texts))
+
+        return "\n\n".join(page_texts).strip()
+
+    # ------------------------------------------------------------------
     # Segment type classification (critic.md Issue 8)
     # ------------------------------------------------------------------
 
@@ -454,13 +719,28 @@ class SmartSegmenter:
                 return "solution"
 
         # Exercise: count lines that look like numbered problems
+        # ADR-034 (critic.v3 Issue 3): exclude lines inside [CODE] blocks from
+        # exercise matching to prevent false positives on code examples.
         lines = [l.strip() for l in text.splitlines() if l.strip()]
-        exercise_line_count = sum(
-            1 for line in lines
-            if any(pat.match(line) for pat in _EXERCISE_PATTERNS)
+        in_code = False
+        exercise_line_count = 0
+        for line in lines:
+            if line == '[CODE]':
+                in_code = True
+                continue
+            if line == '[/CODE]':
+                in_code = False
+                continue
+            if not in_code and any(pat.match(line) for pat in _EXERCISE_PATTERNS):
+                exercise_line_count += 1
+
+        # ADR-034: heading-based exercise check:
+        # 1. Numbered heading + exercise keyword (e.g. "1. Exercise on loops")
+        # 2. Body exercise patterns applied to heading (e.g. "Exercise 3", "Practice 1")
+        heading_is_exercise = (
+            bool(_EXERCISE_HEADING_PATTERN.match(heading_l))
+            or any(pat.match(heading_l) for pat in _EXERCISE_PATTERNS)
         )
-        # Also check heading
-        heading_is_exercise = any(pat.match(heading_l) for pat in _EXERCISE_PATTERNS)
 
         if heading_is_exercise or (exercise_line_count >= 3 and exercise_line_count >= len(lines) * 0.4):
             return "exercise"
@@ -496,6 +776,16 @@ class SmartSegmenter:
         for pat in _FRONTMATTER_PATTERNS:
             if pat.fullmatch(first_line):
                 return "frontmatter"
+
+        # ADR-034 (critic.v3 Issue 4): institutional boilerplate in body text
+        # Check front portion of segment for institutional markers
+        front_500 = text[:500].lower()
+        if re.search(r'(autonomous\s+institution|accredited\s+by|affiliated\s+to|UGC|AICTE|JNTU)', front_500, re.IGNORECASE):
+            return "frontmatter"
+        # Syllabus listing: contains UNIT markers AND textbook references
+        if (re.search(r'UNIT\s+[IVX\d]+', text[:2000], re.IGNORECASE)
+                and re.search(r'(text\s*book|reference\s*book|recommended\s+reading)', text[:2000], re.IGNORECASE)):
+            return "frontmatter"
 
         # Copyright / license pages (content-based heuristic)
         if _is_copyright_page(text):
@@ -735,8 +1025,22 @@ class SmartSegmenter:
 
                         is_bold = line.get('is_bold', False)
 
-                        # Chapter-level header: significant size jump OR bold, AND short enough to be a title
-                        is_header = (len(text) < 80 and (max_size >= header_threshold or is_bold))
+                        # ADR-029 (critic.v3 Issue 1): Bold-frequency filter.
+                        # Bold text qualifies as a header ONLY if:
+                        #  - bold_as_header is enabled
+                        #  - the text is not a high-frequency label
+                        #  - the text does not end with ':' (label pattern)
+                        #  - the text is not a common code label word
+                        bold_ok = False
+                        if self.bold_as_header and is_bold:
+                            text_lower = text.lower().rstrip('.,:;')
+                            if (text_lower not in _BOLD_LABEL_EXCLUSIONS
+                                    and not text.endswith(':')
+                                    and text_lower not in _KNOWN_RUNNING_HEADERS):
+                                bold_ok = True
+
+                        # Chapter-level header: significant size jump OR qualified bold, AND short enough to be a title
+                        is_header = (len(text) < 80 and (max_size >= header_threshold or bold_ok))
 
                         if is_header:
                             if in_code_block:
@@ -778,12 +1082,18 @@ class SmartSegmenter:
         while len(blocks) > 1:
             # Find mergeable pairs
             mergeable = []
+            _unit_boundary_re = re.compile(r'UNIT\s+[–\-]?\s*[IVX\d]+', re.IGNORECASE)
             for i in range(len(blocks) - 1):
                 h0, t0 = blocks[i]
                 h1, t1 = blocks[i + 1]
                 if len(t0) + len(t1) < self.max_chars:
                     # Avoid merging if the second block is a strong chapter start
                     if h1 and re.match(r'^(chapter|module|unit|part)\s+\d+', h1.strip(), re.IGNORECASE):
+                        continue
+                    # ADR-029 (critic.v3 Issue 12): Unit boundary merge barrier
+                    if h1 and _unit_boundary_re.search(h1):
+                        continue
+                    if _unit_boundary_re.search(t1[:200]):
                         continue
                     mergeable.append(i)
 

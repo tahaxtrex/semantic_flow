@@ -1,12 +1,12 @@
 # SemanticFlow Pedagogical Evaluator — Technical Specification
 
 ## 1. Overview
-A deterministic, local Python CLI tool designed to read educational PDFs, deterministically segment their content, extract course metadata, and assess each segment's pedagogical quality across 10 structural dimensions using LLMs (Claude Sonnet primarily, falling back to Gemini). 
+A deterministic, local Python CLI tool designed to read educational PDFs, deterministically segment their content, extract course metadata, and assess pedagogical quality using LLMs (Claude Sonnet or Gemini, explicitly selected). Assessment uses a Two-Gate model: 5 Module Gate rubrics (per-segment) and 5 Course Gate rubrics (holistic). 
 
 ## 2. Goals
 1. Process course materials locally from a structured folder via CLI.
 2. Segment content based on headers, falling back to safe character/page chunks.
-3. Use a deterministic strategy (no LLM) for segmentation.
+3. Use a deterministic strategy (no LLM) for segmentation (three-tier hierarchy: bookmark TOC → visual TOC → font-heuristic).
 4. Call LLMs efficiently to assess each segment based on the `config/rubrics.yaml` framework.
 5. Record output purely in JSON format.
 6. Support dual metadata ingestion: prioritize external matching (JSON/HTML/TXT) but fallback to PDF extraction.
@@ -25,7 +25,7 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 - **FR-002 (Metadata Extraction):** The system shall extract standard metadata (Title, Author, Target Audience, Subject, Source, Description, Prerequisites, Learning Outcomes) from the PDF if external metadata is omitted.
 - **FR-003 (Deterministic Segmentation):** The system shall segment the PDF deterministically using header hierarchies, taking visual formatting vs structural headers into account.
 - **FR-004 (Segmentation Fallback):** If headers fail or segments are too large, the system shall safely chunk by characters/pages while respecting sentence boundaries.
-- **FR-005 (Evaluation):** The system shall query an LLM to evaluate the segment on 10 pedagogical dimensions.
+- **FR-005 (Evaluation):** The system shall query an LLM to evaluate segments on 5 Module Gate rubrics (per-segment) and the overall course on 5 Course Gate rubrics (holistic capstone call).
 - **FR-006 (Model Binding & Hard Failure):** The system shall bind to a single explicitly selected model (Claude 4.6 Sonnet or Gemini 2.5 Flash) for the complete duration of execution to ensure scientific validity. If the respective model fails, the system shall crash, log the exact error, and halt processing immediately. There is no mid-run model cascading.
 - **FR-007 (Output Formatting):** The system shall output the segment scores, reasoning, and the *exact text evaluated* in a strict, validated JSON format strictly enforcing Pydantic validations without default values.
 - **FR-008 (Aggregation):** The system shall aggregate the individual segment assessments into a course-level quality score by computing a length-weighted mathematical average of all explicitly instructional segments.
@@ -120,7 +120,7 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 
 ## 7. Error Handling & Edge Cases
 - **Missing Metadata Fields:** Will be filled as `"Unknown"` or `null` if the PDF extractor fails. Does not block execution.
-- **LLM Rate Limits / 503s:** Cascade to Gemini. If Gemini fails, immediate program termination with strict traceback.
+- **LLM Rate Limits / 503s:** Retry with exponential backoff (up to 3 attempts). If all retries fail, immediate program termination with strict traceback. No mid-run model cascading (ADR-002).
 - **Large PDF Segments:** Chunk by max-token length ending on standard sentence punctuation (`.`, `?`, `!`, `\n`).
 - **Malformed LLM Output:** `evaluator.py` will force a JSON-schema response from the APIs. If parsing fails, retry 2 times before treating as API failure.
 

@@ -85,10 +85,10 @@ def test_merge_short_blocks_preserves_first_heading():
 def test_merge_short_blocks_uses_second_heading_when_first_is_none():
     """If the first block has no heading but second does, the second heading is used."""
     segmenter = SmartSegmenter(Path("dummy.pdf"), max_chars=500)
-    blocks = [(None, "preamble text"), ("Chapter 1", "main content")]
+    blocks = [(None, "preamble text"), ("Data Types", "main content")]
     result = segmenter._merge_short_blocks(blocks)
     assert len(result) == 1
-    assert result[0][0] == "Chapter 1"
+    assert result[0][0] == "Data Types"
 
 
 def test_merge_short_blocks_empty():
@@ -267,16 +267,23 @@ def test_classify_solution_by_heading():
 
 
 def test_classify_exercise_by_heading():
-    """Exercise heading → exercise."""
+    """Exercise heading with exercise keyword → exercise (ADR-034)."""
     segmenter = SmartSegmenter(Path("dummy.pdf"))
     result = segmenter._classify_segment("Exercise 3", "Write a function that...")
     assert result == "exercise"
 
 
-def test_classify_exercise_by_numbered_lines():
-    """Segment with ≥3 numbered lines AND ≥40% of lines are numbered → exercise."""
+def test_classify_numbered_heading_not_exercise():
+    """Numbered heading WITHOUT exercise keyword → instructional, not exercise (ADR-034)."""
     segmenter = SmartSegmenter(Path("dummy.pdf"))
-    text = "1. Write a function.\n2. Test it.\n3. Submit it.\n4. Review it."
+    result = segmenter._classify_segment("1. Built-in functions", "Functions that are built into Python.")
+    assert result == "instructional"
+
+
+def test_classify_exercise_by_numbered_lines():
+    """Segment with ≥3 exercise-keyword lines AND ≥40% of lines are exercise → exercise."""
+    segmenter = SmartSegmenter(Path("dummy.pdf"))
+    text = "Practice 1: Write a function.\nExercise 2: Test it.\nQ3. Submit it.\nQ4. Review it."
     result = segmenter._classify_segment("Exercises", text)
     assert result == "exercise"
 

@@ -722,6 +722,30 @@ class MetadataIngestor:
                     logger.info("Inferred description.")
                     break
 
+        # ── Explicit academic year/semester detection (ADR-031, critic.v3 Issue 5) ──
+        # Scan BEFORE generic level inference so "B.TECH III YEAR" takes priority
+        # over "introduction" appearing as a topic name.
+        _academic_year_re = re.compile(
+            r'(\d+(?:st|nd|rd|th)\s+year|[IVX]+\s+year|year\s+[IVX\d]+'
+            r'|B\.?\s*Tech|M\.?\s*Tech'
+            r'|semester\s+[IVX\d]+|[IVX]+\s+sem(?:ester)?)',
+            re.IGNORECASE,
+        )
+        _academic_audience_re = re.compile(
+            r'(\d+(?:st|nd|rd|th)?\s+(?:year|sem|semester)[^\.\n]{0,80})',
+            re.IGNORECASE,
+        )
+        academic_match = _academic_year_re.search(combined)
+        if academic_match:
+            # Extract a fuller audience description from context
+            audience_match = _academic_audience_re.search(combined)
+            if audience_match:
+                metadata.target_audience = audience_match.group(1).strip().rstrip('.,')[:200]
+                logger.info(f"Academic audience detected: {metadata.target_audience}")
+            else:
+                metadata.target_audience = academic_match.group(1).strip()[:200]
+                logger.info(f"Academic year marker detected: {metadata.target_audience}")
+
         # ── Level (introductory / intermediate / advanced) ─────────────────
         if metadata.level == "Unknown":
             level_pat = re.compile(
@@ -731,7 +755,19 @@ class MetadataIngestor:
             m = level_pat.search(combined)
             if m:
                 raw = m.group(1).lower()
-                if raw in ('introductory','introduction','beginner','foundational','foundations'):
+                # ADR-031: "introduction" as a topic name (e.g. "Introduction to Python")
+                # should NOT set the course level to Introductory.
+                if raw == 'introduction':
+                    # Check if "introduction" is followed by "to [Subject]"
+                    intro_topic_re = re.compile(
+                        r'\bintroduction\s+to\s+\w', re.IGNORECASE
+                    )
+                    if intro_topic_re.search(combined):
+                        # Skip — this is a topic description, not a course level
+                        pass
+                    else:
+                        metadata.level = "Introductory"
+                elif raw in ('introductory','beginner','foundational','foundations'):
                     metadata.level = "Introductory"
                 elif raw in ('intermediate',):
                     metadata.level = "Intermediate"

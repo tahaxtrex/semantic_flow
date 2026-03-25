@@ -163,3 +163,34 @@ The user wants to divide the pedagogical evaluation into two distinct gates to b
 - [x] TASK-044: Expand test_aggregator.py with AssessmentTree tests.
   - Spec ref: ADR-024
   - Notes: Added 3 new tests (tests 8-10): `test_assessment_tree_structure`, `test_assessment_tree_module_scores_match_flat_dict`, `test_assessment_tree_course_scores_match_assessment`. Total test count: 45/45 passing.
+
+## Phase: Critic v3 Cross-Validation Fixes
+
+- [x] TASK-045: Fix rubric definitions and weight typo.
+  - Spec ref: ADR-032, critic.v3.md Issues 6, 7, 11
+  - Notes: Rewrote `business_relevance` description. Sharpened `example_concreteness` mid-band. Fixed `weight: 1.0j` → `weight: 1.0`.
+
+- [x] TASK-046: Consolidate CourseMetadata to single source of truth.
+  - Spec ref: ADR-033, critic.v3.md Issue 10
+  - Notes: Deleted `CourseMetadata` from `models.py`, re-exported from `metadata.py`.
+
+- [x] TASK-047: Add explicit academic audience detection in metadata.
+  - Spec ref: ADR-031, critic.v3.md Issue 5
+  - Notes: Added academic year/semester regex before level inference. "Introduction to X" no longer triggers Introductory level.
+
+- [x] TASK-048: Implement visual TOC parser and bold-frequency header filter.
+  - Spec ref: ADR-029, critic.v3.md Issues 1, 2, 12, 14
+  - Notes: Added `_extract_visual_toc()`. Added bold-frequency filter and label exclusion. Added `bold_as_header` toggle. Added unit-boundary merge barriers.
+
+- [x] TASK-049: Fix exercise classifier and frontmatter boilerplate detection.
+  - Spec ref: ADR-034, critic.v3.md Issues 3, 4
+  - Notes: Required exercise keywords after numbered headings. Excluded `[CODE]` blocks from body exercise patterns. Added institutional/syllabus boilerplate detection.
+
+- [x] TASK-050: Add cross-segment awareness and three-step calibration to Module Gate.
+  - Spec ref: ADR-030, critic.v3.md Issues 8, 13
+  - Notes: Injected previous segment summaries and cross-segment context. Replaced binary scoring with 3-step calibration (IDENTIFY, ANCHOR, DIFFERENTIATE).
+
+- [x] TASK-051: Enrich Course Gate with Module Gate quality signals and fix docstrings.
+  - Spec ref: ADR-030, critic.v3.md Issues 9, 15, 16
+  - Notes: Appended Module Gate scores to segment summaries. Added MODULE GATE QUALITY SUMMARY section with repetition detection. Fixed docstring (5 rubrics). Fixed "4 Course Gate rubrics" → dynamic reference.
+

@@ -1,21 +1,9 @@
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
-
-class CourseMetadata(BaseModel):
-    title: Optional[str] = None
-    author: Optional[str] = None
-    target_audience: Optional[str] = None
-    subject: Optional[str] = None
-    source: str = "Unknown"
-    description: Optional[str] = None
-    prerequisites: List[str] = Field(default_factory=list)
-    learning_outcomes: List[str] = Field(default_factory=list)
-    publisher: Optional[str] = None
-    year: Optional[str] = None
-    isbn: Optional[str] = None
-    level: Optional[str] = None
-    contributing_authors: List[str] = Field(default_factory=list)
+# ADR-033: Single source of truth for CourseMetadata lives in metadata.py.
+# Re-exported here so existing `from src.models import CourseMetadata` imports keep working.
+from src.metadata import CourseMetadata
 
 
 class Segment(BaseModel):

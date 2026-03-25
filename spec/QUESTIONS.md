@@ -222,3 +222,26 @@ Corrected Split:
 
 **Question:** Should scanned PDF text extraction use classic Tesseract OCR or an AI vision model (e.g., Gemini multimodal)?
 **Answer:** Classic Tesseract. It is deterministic, reproducible, free, and sufficient for clean 300 DPI textbook scans. AI LLM budget should be reserved exclusively for the evaluation gates where judgment is required.
+
+---
+
+# Phase 3: Critic v3 Cross-Validation Fixes
+
+## Q-027: Rubric Disambiguation — Topic Coverage vs Professional Application
+**Phase:** Critic v3 Fixes
+**Date:** 2026-03-24
+**Status:** Answered
+
+**Question:** The `business_relevance` rubric lets the LLM equate "topics match learning outcomes" with "practically applicable." Should we separate topic coverage (already scored by `goal_focus`) from real-world professional application (which `business_relevance` should uniquely assess)?
+**Answer:** Yes. `business_relevance` must be rewritten to explicitly require real-world professional tasks, case studies, and industry scenarios. Matching topics to learning outcomes is already scored by `goal_focus` — `business_relevance` should penalise purely syntactic/theoretical content even when it covers stated outcomes. See ADR-032.
+**Impact:** ADR-032 (rubric sharpening), `config/rubrics.yaml`
+
+## Q-028: Exercise Pattern False Positives on Numbered Headings
+**Phase:** Critic v3 Fixes
+**Date:** 2026-03-24
+**Status:** Answered
+
+**Question:** The exercise classifier pattern `r'^\d+[\.)]'` matches any heading starting with a number (e.g. `"1. Built-in functions"`). Should the heading-based exercise check require exercise-specific keywords after the number?
+**Answer:** Yes. Numbering alone is insufficient evidence. Require an imperative verb or exercise keyword after the number. See ADR-034.
+**Impact:** ADR-034, `src/segmenter.py`
+
