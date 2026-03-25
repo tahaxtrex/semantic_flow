@@ -61,20 +61,31 @@ _FIG_REF_RE = re.compile(r'Fig\.?\s*(\d+\.\d+)\b', re.IGNORECASE)
 # Segment type detection patterns (critic.md Issue 8)
 # ADR-034 (critic.v3 Issue 3): Exercise heading pattern now requires exercise-specific
 # keywords AFTER the number. '1. Built-in functions' no longer triggers.
+# Extended: non-numbered heading variants like "Review Questions", "Checkpoint", etc.
 _EXERCISE_HEADING_PATTERN = re.compile(
-    r'^\d+[.)\s]\s*(exercise|practice|problem|question|write\s+a\s+program|assignment|task\s+\d)',
+    r'^\d+[.)\s]\s*(exercise|practice|problem|question|write\s+a\s+program|assignment|task\s+\d)'
+    r'|^(review\s+questions?|practice\s+problems?|checkpoint|try\s+it(\s+yourself)?'
+    r'|self[\-\s]?check|knowledge\s+check|lab\s+exercise|hands[\-\s]on(\s+activity)?'
+    r'|activity\s+\d|coding\s+(exercise|challenge)|programming\s+(exercise|challenge))',
     re.IGNORECASE,
 )
 _EXERCISE_PATTERNS = [
     re.compile(r'^(Practice\s+\d|Exercise\s+\d|Q\d+[\.\)])', re.IGNORECASE),
     re.compile(r'\b(write a program|create a|implement|design a)\b', re.IGNORECASE),
 ]
+# Extended: "Worked Example", "Sample Output", "Expected Output" alongside existing patterns
 _SOLUTION_PATTERNS = [
     re.compile(r'^(Solution|Answer|Answers|Solutions)\b', re.IGNORECASE),
     re.compile(r'^(Answer to|Solution to)\b', re.IGNORECASE),
+    re.compile(r'^(Worked\s+Example|Sample\s+Output|Expected\s+Output)\b', re.IGNORECASE),
 ]
+# Extended: quick-reference and API/command reference headings beyond appendix/index
 _REFERENCE_TABLE_PATTERNS = [
-    re.compile(r'\b(appendix|table of|reference table|index)\b', re.IGNORECASE),
+    re.compile(
+        r'\b(appendix|table of|reference table|index|quick\s+reference|cheat\s+sheet'
+        r'|summary\s+table|method\s+summary|api\s+reference|command\s+reference)\b',
+        re.IGNORECASE,
+    ),
 ]
 _FRONTMATTER_PATTERNS = [
     re.compile(r'^(\s*(table of contents|contents|preface|acknowledgments|about this book|history|sources|foreword|dedication|bibliography|glossary|index|appendix|abbreviations|list of figures|list of tables)\s*)$', re.IGNORECASE),
@@ -708,10 +719,13 @@ class SmartSegmenter:
             heading = None
             heading_l = ""
 
-        # Reference table: heading matches appendix/table keywords
+        # Reference table: heading matches appendix/table keywords,
+        # OR body is dominated by [TABLE: ...] markers (≥4 occurrences → reference-dense)
         for pat in _REFERENCE_TABLE_PATTERNS:
             if pat.search(heading_l):
                 return "reference_table"
+        if text.count("[TABLE:") >= 4:
+            return "reference_table"
 
         # Solution: heading says answer/solution
         for pat in _SOLUTION_PATTERNS:

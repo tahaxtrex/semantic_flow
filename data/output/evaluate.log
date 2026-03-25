@@ -1001,3 +1001,33 @@ anthropic.AuthenticationError: Error code: 401 - {'type': 'error', 'error': {'ty
 2026-03-25 10:51:12,158 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
 2026-03-25 10:51:12,160 [INFO] SemanticFlowEvaluator: Successfully evaluated course2.pdf -> course2_evaluation.json
 2026-03-25 10:51:12,160 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-03-25 12:05:34,042 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-03-25 12:05:34,043 [INFO] SemanticFlowEvaluator: Input: data/courses
+2026-03-25 12:05:34,043 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-03-25 12:05:34,043 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-03-25 12:05:34,043 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-03-25 12:05:34,797 [INFO] SemanticFlowEvaluator: --- Processing: course2.pdf ---
+2026-03-25 12:05:34,797 [INFO] SemanticFlowEvaluator: Step 1/5: Metadata Extraction
+2026-03-25 12:05:34,797 [INFO] SemanticFlowEvaluator: Step 2/5: Deterministic Segmentation
+2026-03-25 12:16:52,785 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-03-25 12:16:52,786 [INFO] SemanticFlowEvaluator: Input: data/courses
+2026-03-25 12:16:52,786 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-03-25 12:16:52,786 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-03-25 12:16:52,786 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-03-25 12:16:53,537 [INFO] SemanticFlowEvaluator: --- Processing: course2.pdf ---
+2026-03-25 12:16:53,537 [INFO] SemanticFlowEvaluator: Step 1/5: Metadata Extraction
+2026-03-25 12:16:53,537 [INFO] SemanticFlowEvaluator: Step 2/5: Deterministic Segmentation
+2026-03-25 12:17:12,748 [INFO] SemanticFlowEvaluator: Step 3/5: Module Gate Evaluation (41 segments)
+2026-03-25 12:17:12,748 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 1/9 (5 segments)
+2026-03-25 12:17:46,225 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 2/9 (5 segments)
+2026-03-25 12:18:12,903 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 3/9 (5 segments)
+2026-03-25 12:18:45,751 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 4/9 (5 segments)
+2026-03-25 12:19:51,871 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 5/9 (5 segments)
+2026-03-25 12:20:40,128 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 6/9 (5 segments)
+2026-03-25 12:21:40,519 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 7/9 (5 segments)
+2026-03-25 12:22:23,109 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 8/9 (5 segments)
+2026-03-25 12:23:35,618 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 9/9 (1 segments)
+2026-03-25 12:23:47,911 [INFO] SemanticFlowEvaluator: Step 4/5: Course Gate Evaluation (capstone)
+2026-03-25 12:24:07,510 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
+2026-03-25 12:24:07,512 [INFO] SemanticFlowEvaluator: Successfully evaluated course2.pdf -> course2_evaluation.json
+2026-03-25 12:24:07,513 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.

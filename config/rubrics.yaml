@@ -3,6 +3,7 @@
 # Each rubric is scored on a 1-10 integer scale.
 # weight: contribution to overall_score (1.0 = equal weight; adjust for experiments).
 # scoring_guide: concrete anchors to reduce LLM score variance.
+# evaluation_questions: guiding questions the LLM must answer before committing a score.
 #
 # ARCHITECTURE: Two-Gate Assessment Model (ADR-016, ADR-017)
 # - module_rubrics: Assess atomic content segments (chapters people read).
@@ -17,6 +18,11 @@ module_rubrics:
       unnecessary digressions and fluff?
       It should prioritize 'Must-Know' information over supplemental details.
     weight: 1.0
+    evaluation_questions:
+      - "Does every paragraph directly serve the segment's stated learning goal?"
+      - "Are there digressions, historical tangents, or off-topic content that distract from the core topic?"
+      - "Is 'must-know' content clearly prioritized over 'nice-to-know' details?"
+      - "If the segment has a heading, does the body text match and fully deliver on it?"
     scoring_guide:
       low: "1-3: Significant digressions, unclear objectives, much irrelevant content"
       mid: "4-6: Mostly on-topic but with some unnecessary tangents"
@@ -27,12 +33,20 @@ module_rubrics:
     description: >
       How accessible is the language used? Does the learner spend effort
       understanding terminology rather than concepts? Ensure content is
-      grammatically correct and avoids ambiguities.
+      grammatically correct, free of spelling errors, and avoids ambiguities.
+      Grammatical errors, typos, and poorly constructed sentences that impede
+      comprehension must be penalised here.
     weight: 1.0
+    evaluation_questions:
+      - "Are sentences clear and appropriately short for the target audience?"
+      - "Are there grammatical errors, spelling mistakes, or typos that impede reading?"
+      - "Do any paragraphs feel rushed, incomplete, or structurally awkward?"
+      - "Is the vocabulary level appropriate — neither too basic nor unnecessarily complex?"
+      - "Are code blocks and prose balanced so neither overwhelms the other?"
     scoring_guide:
-      low: "1-3: Dense, inaccessible language; frequent ambiguities or grammar errors"
-      mid: "4-6: Generally readable but some passages are unnecessarily complex"
-      high: "7-10: Clear, concise, grammatically correct, appropriate for the intended audience"
+      low: "1-3: Dense, inaccessible language; frequent grammatical errors, typos, or ambiguous sentences that block comprehension"
+      mid: "4-6: Generally readable but some passages are unnecessarily complex, grammatically awkward, or contain minor errors"
+      high: "7-10: Clear, concise, grammatically correct, well-paced prose appropriate for the intended audience"
 
   - id: pedagogical_clarity
     name: "Pedagogical Clarity"
@@ -41,6 +55,11 @@ module_rubrics:
       for the intended audience? Technical terminology must be defined
       consistently upon first use.
     weight: 1.0
+    evaluation_questions:
+      - "Is every new technical term defined at or before its first use?"
+      - "Is notation and terminology consistent throughout the segment, or does naming shift?"
+      - "Would a student who just started this course follow the explanations without an instructor?"
+      - "Are concepts introduced in a logical order (prerequisite concepts before dependent ones)?"
     scoring_guide:
       low: "1-3: Heavy unexplained jargon, undefined terms throughout"
       mid: "4-6: Some terms undefined, occasional clarity issues"
@@ -55,6 +74,11 @@ module_rubrics:
       Scenarios should be realistic enough that the learner understands
       WHY a concept is useful, not just HOW to type it.
     weight: 1.0
+    evaluation_questions:
+      - "Do examples use realistic, domain-grounded data (e.g. student records, sales figures, inventory) rather than trivial placeholders (a=5, x=[1,2,3])?"
+      - "After reading an example, would a student understand WHY this concept is useful in the real world?"
+      - "Are variable names meaningful (e.g. `student_name`, `total_price`) rather than generic (x, y, foo)?"
+      - "Do examples match the cognitive level of the target audience, or are they too trivial / too complex?"
     scoring_guide:
       low: "1-3: No examples, or only abstract pseudo-descriptions without actual code/scenarios"
       mid: "4-6: Code examples present but use trivial/generic data (a=5, x=[1,2,3], 'mrcet college'); no real-world motivation for the examples"
@@ -66,6 +90,11 @@ module_rubrics:
       Are examples consistent and thematically connected across sections?
       Examples should build on each other rather than being isolated vignettes.
     weight: 1.0
+    evaluation_questions:
+      - "Do examples across the segment share a common domain or running scenario?"
+      - "Does each new example build on or extend something already introduced, or does it reset completely?"
+      - "If the segment has multiple sub-topics, do the examples form a coherent narrative thread?"
+      - "Are there jarring tonal or domain shifts between examples (e.g. switching from medical data to gaming scores mid-segment)?"
     scoring_guide:
       low: "1-3: Examples contradict each other or are thematically scattered"
       mid: "4-6: Some thematic connection but inconsistencies exist"
@@ -80,6 +109,11 @@ course_rubrics:
       Prerequisites from the Course Metadata? Does the course ordering respect
       the Target Audience's expected knowledge base?
     weight: 1.0
+    evaluation_questions:
+      - "Are all foundational concepts introduced before the modules that depend on them?"
+      - "Do the assumed prerequisites in the content match the explicitly stated prerequisites in the metadata?"
+      - "Would a student with only the listed prerequisites be able to follow the first module without prior exposure?"
+      - "Are there any 'prerequisite surprises' — concepts used without introduction that the target audience would not know?"
     scoring_guide:
       low: "1-3: Concepts used before introduction, prerequisites unstated or incorrect"
       mid: "4-6: Mostly ordered but some gaps in prerequisite handling across modules"
@@ -93,6 +127,11 @@ course_rubrics:
       and guidelines explicit? Technical requirements and support resources
       should be easily locatable.
     weight: 1.0
+    evaluation_questions:
+      - "Is there a clear table of contents or module overview that lets a student plan their study?"
+      - "Are module/chapter boundaries clearly demarcated with headings or section numbers?"
+      - "Could a student jumping directly to a specific topic find it without reading from the start?"
+      - "Are supplemental materials (exercises, references, summaries) clearly separated from instructional content?"
     scoring_guide:
       low: "1-3: Poor organization, missing navigation cues, unclear module structure"
       mid: "4-6: Adequate structure but some modules are hard to navigate or locate"
@@ -108,6 +147,11 @@ course_rubrics:
       Outcomes is NOT sufficient — the content must show practical application context.
       A course that teaches syntax without showing real-world usage scores low.
     weight: 1.0
+    evaluation_questions:
+      - "Are there real-world projects, case studies, or industry scenarios anywhere in the course?"
+      - "Do examples show HOW and WHERE a concept is used professionally, not just how to write the syntax?"
+      - "Would a student finishing this course know what kinds of real jobs or tasks they could now do?"
+      - "Is the gap between academic exercises and professional application explicitly bridged?"
     scoring_guide:
       low: "1-3: Purely syntactic/theoretical; no real-world scenarios, projects, or industry context"
       mid: "4-6: Some practical elements but examples use trivial/generic data (a=5, x=[1,2,3]); lacking industry context"
@@ -120,6 +164,11 @@ course_rubrics:
       the course jump abruptly between unrelated topics? Does the narrative
       thread carry naturally from one module to the next?
     weight: 1.0
+    evaluation_questions:
+      - "Do modules transition smoothly, or are there jarring topic jumps with no bridging material?"
+      - "Is there a narrative or thematic thread that ties the course together from start to finish?"
+      - "Does each module's ending naturally lead into the next module's opening topic?"
+      - "Is progress cumulative — do later modules build explicitly on earlier ones?"
     scoring_guide:
       low: "1-3: Jarring module-to-module transitions, disconnected topics, abrupt jumps"
       mid: "4-6: Some rough inter-module transitions but overall followable"
@@ -139,6 +188,12 @@ course_rubrics:
       that the instructional depth and activities match the complexity demanded by
       the LOs. A 9-10 requires rich, purposeful alignment throughout all modules.
     weight: 1.0
+    evaluation_questions:
+      - "Does every stated Learning Outcome have at least one module that directly and substantively addresses it?"
+      - "Is the instructional depth (time spent, complexity of examples) proportional to the importance of each LO?"
+      - "Are the teaching strategies (lectures, worked examples, exercises) appropriate for the Target Audience's level?"
+      - "Are there any Learning Outcomes that are named but never actually delivered in the content?"
+      - "Is the pacing appropriate — not rushing complex topics or over-explaining trivial ones?"
     scoring_guide:
       low: "1-3: Major topics from Learning Outcomes are absent or deeply misrepresented"
       mid: "4-6: All LO topics present but delivery is shallow, rushed, or mismatched to audience level — mere topic coverage anchors here"

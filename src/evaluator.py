@@ -192,13 +192,12 @@ class LLMEvaluator:
         raise ValueError(f"Cannot unwrap Gemini object response. Got type={type(raw).__name__}: {str(raw)[:200]}")
 
     # -------------------------------------------------------------------------
-    # MODULE GATE — Field Definitions
+    # MODULE GATE — Field Definitions (derived from models to avoid duplication)
     # -------------------------------------------------------------------------
 
-    _MODULE_SCORE_FIELDS = [
-        "goal_focus", "text_readability", "pedagogical_clarity",
-        "example_concreteness", "example_coherence",
-    ]
+    # Single source of truth: ModuleScores / CourseScores in models.py.
+    # Adding a field there automatically updates these lists and the tool schemas.
+    _MODULE_SCORE_FIELDS = list(ModuleScores.model_fields.keys())
     _MODULE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _MODULE_SCORE_FIELDS]
 
     _MODULE_EVAL_TOOL = {
@@ -284,11 +283,32 @@ For each rubric dimension, follow these three steps IN ORDER before committing a
   Step 3 — DIFFERENTIATE within the band. Pick the specific integer.
            A score of 7 vs 8 must be justified by a concrete quality difference.
 
-CALIBRATION ANCHORS (mandatory reference points):
-  - example_concreteness: Trivial variables (a=5, x=[1,2,3], "hello world") → max 6.
-    Realistic scenarios (student records, data processing) → 7+.
-  - goal_focus: Content that digresses into unrelated topics → max 5.
-  - text_readability: Dense walls of code with no explanatory prose → max 5.
+CALIBRATION ANCHORS — scores MUST match these exemplars. If in doubt, score lower, not higher.
+
+  goal_focus:
+    3 — Long tangents into unrelated material; the segment's stated topic is buried or absent
+    5 — Core topic present but padded with loosely related digressions (history, side-notes)
+    8 — Stays on-topic throughout; every paragraph directly serves the stated learning goal
+
+  text_readability:
+    3 — Walls of code or dense paragraphs with no explanatory prose; impossible without an instructor
+    5 — Readable but has occasional run-on sentences, unexplained acronyms, or abrupt transitions
+    8 — Clear, well-paced prose; every code block is preceded or followed by plain-language explanation
+
+  pedagogical_clarity:
+    3 — New jargon introduced without any definition; inconsistent or contradictory terminology
+    5 — Most terms eventually defined, but some are used pages before their introduction
+    8 — Every new term defined on first use; notation is consistent from start to finish
+
+  example_concreteness:
+    3 — No examples at all, or purely abstract placeholders (a=1, foo, bar, x=0)
+    5 — Trivial academic data only: a=5, x=[1,2,3], "hello world", print(42), dummy variables
+    8 — Realistic, domain-grounded scenarios: student records, inventory system, sales data, employee payroll
+
+  example_coherence:
+    3 — Completely disconnected examples; each sub-section invents an unrelated new scenario
+    5 — Examples are loosely themed but don't build on each other; narrative resets between topics
+    8 — Examples share a consistent domain or running scenario that accumulates across the segment
 {cross_segment_ctx}
 
 EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
@@ -469,14 +489,10 @@ This summary will be used as context in a subsequent holistic course-level evalu
         return sorted(results, key=lambda x: x.segment_id)
 
     # -------------------------------------------------------------------------
-    # COURSE GATE — Field Definitions
+    # COURSE GATE — Field Definitions (derived from models to avoid duplication)
     # -------------------------------------------------------------------------
 
-    _COURSE_SCORE_FIELDS = [
-        "prerequisite_alignment", "structural_usability",
-        "business_relevance", "fluidity_continuity",
-        "instructional_alignment",  # ADR-016: moved from Module Gate
-    ]
+    _COURSE_SCORE_FIELDS = list(CourseScores.model_fields.keys())  # ADR-016: includes instructional_alignment
     _COURSE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _COURSE_SCORE_FIELDS]
 
     _COURSE_EVAL_TOOL = {
@@ -584,6 +600,37 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
                 user_prompt += f"\n## MODULE GATE QUALITY SUMMARY\n"
                 user_prompt += f"- Average Module Gate score across {len(all_scores)} segments: {overall_avg:.1f}/10\n"
                 user_prompt += f"- Lowest-scoring segment: ID {lowest[0]} ({lowest[1] or 'untitled'}) — avg {lowest[2]:.1f}\n"
+
+                # Pass weakest segment's actual text and per-dimension rationales so the
+                # Course Gate can reason about evidence quality, not just numeric scores.
+                lowest_seg = next(
+                    (s for s in instructional_with_summary if s.segment_id == lowest[0]), None
+                )
+                if lowest_seg:
+                    user_prompt += (
+                        f"- Weakest segment text sample:\n"
+                        f"  {lowest_seg.text[:600].strip()}\n"
+                    )
+                    reasoning = getattr(lowest_seg, 'reasoning', None)
+                    if reasoning:
+                        reasoning_dict = (
+                            reasoning.model_dump() if hasattr(reasoning, 'model_dump') else {}
+                        )
+                        rationale_lines = []
+                        for dim in self._MODULE_SCORE_FIELDS:
+                            r = reasoning_dict.get(f'{dim}_rationale', '') or ''
+                            if r:
+                                rationale_lines.append(f"  {dim}: {r[:200]}")
+                        if rationale_lines:
+                            user_prompt += "- Weakest segment per-dimension rationales:\n"
+                            user_prompt += "\n".join(rationale_lines) + "\n"
+
+                # Top 3 strongest segments as contrast
+                top3 = sorted(all_scores, key=lambda s: s[2], reverse=True)[:3]
+                user_prompt += "- Top 3 strongest segments:\n"
+                for seg_id, heading, avg, _ in top3:
+                    user_prompt += f"  ID {seg_id} ({heading or 'untitled'}): avg {avg:.1f}\n"
+
                 # Detect repetition: segments with very similar summaries
                 summaries_text = [s.summary.lower() for s in instructional_with_summary if s.summary]
                 repeated_topics = []

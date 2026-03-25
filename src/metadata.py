@@ -618,23 +618,68 @@ class MetadataIngestor:
     # Apply PDF document properties
     # ─────────────────────────────────────────────────────────────────────────
 
+    # OS/tool-generated usernames that should never be treated as real authors
+    _GARBAGE_AUTHOR_RE = re.compile(
+        r'^(windows\s+user|administrator|admin|user|root|unknown|default|test'
+        r'|owner|pc|laptop|desktop|student|author|anonymous|n/?a)$',
+        re.IGNORECASE,
+    )
+    # Artefacts injected by PDF creators / converters
+    _AUTHOR_ARTEFACT_RE = re.compile(
+        r'(acrobat|microsoft\s+word|libreoffice|openoffice|latex|tex|wkhtmltopdf'
+        r'|created\s+by|generated\s+by|converted\s+by)',
+        re.IGNORECASE,
+    )
+    # Course-code artefacts embedded in titles (e.g. [R17A0554], CS101, BCA-204)
+    _COURSE_CODE_RE = re.compile(
+        r'\s*[\[\(]?\s*[A-Z]{1,5}[-\s]?\d{3,}[A-Z0-9]*\s*[\]\)]?\s*', re.IGNORECASE
+    )
+    # Trailing academic-document labels that add no title value
+    _TITLE_LABEL_RE = re.compile(
+        r'\s*[-–|:]\s*(lecture\s+notes?|syllabus|study\s+material|class\s+notes?'
+        r'|course\s+material|handout|notes?)\s*$',
+        re.IGNORECASE,
+    )
+
     def _apply_pdf_properties(self, metadata: CourseMetadata, doc_info: dict, pdf_path: Path):
-        def _get(key): 
+        def _get(key):
             v = doc_info.get(key, "")
             return v.strip() if isinstance(v, str) and v.strip() else None
 
         if _get('Title'):
-            # Only set title if it's not the exact same as the stem or if it's an obviously good title
             title = _get('Title')
-            # Some PDFs have metadata title matching the filename stem without caps, ignore those to let heuristic work later
             if title.lower() != pdf_path.stem.lower():
-                metadata.title = title
+                # Strip embedded course codes (e.g. "[ R17A0554 ]")
+                title = self._COURSE_CODE_RE.sub(' ', title).strip()
+                # Strip trailing document-type labels
+                title = self._TITLE_LABEL_RE.sub('', title).strip()
+                # Collapse leftover empty brackets
+                title = re.sub(r'\[\s*\]', '', title).strip()
+                if len(title) >= 3:
+                    metadata.title = title
+                    logger.debug(f"PDF property title (cleaned): {metadata.title}")
 
-        # Leave author as Unknown if not nicely formatted in PDF properties
-        if _get('Author'):     
-            metadata.author = _get('Author')
-        if _get('Subject'):    
-            metadata.subject = _get('Subject')
+        if _get('Author'):
+            author = _get('Author')
+            # Reject single-token names, OS usernames, and tool artefacts
+            is_garbage = (
+                self._GARBAGE_AUTHOR_RE.match(author)
+                or self._AUTHOR_ARTEFACT_RE.search(author)
+                or ' ' not in author            # single token → likely not a person
+                or not any(c.isupper() for c in author)  # no uppercase → not a proper name
+            )
+            if is_garbage:
+                logger.debug(f"Rejected garbage PDF author: {author!r}")
+            else:
+                metadata.author = author
+
+        if _get('Subject'):
+            subject = _get('Subject')
+            # Discard if it looks like a syllabus dump (very long or semicolon-separated list)
+            if len(subject) > 200 or subject.count(';') >= 2:
+                logger.debug(f"Discarded noisy PDF subject field ({len(subject)} chars, {subject.count(';')} semicolons).")
+            else:
+                metadata.subject = subject
 
     # ─────────────────────────────────────────────────────────────────────────
     # Pattern-based inference  (the heart of the improvement)
