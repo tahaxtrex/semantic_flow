@@ -69,12 +69,58 @@ class LLMEvaluator:
             raise ValueError(f"Unsupported model requested: {self.preferred_model}")
 
     def _load_rubrics(self) -> Tuple[str, str]:
-        """Load and return (module_rubrics_yaml, course_rubrics_yaml) as YAML strings."""
+        """Load rubrics from YAML and store parsed objects + formatted prompt strings."""
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        module_yaml = yaml.dump({"module_rubrics": data["module_rubrics"]}, sort_keys=False)
-        course_yaml = yaml.dump({"course_rubrics": data["course_rubrics"]}, sort_keys=False)
-        return module_yaml, course_yaml
+        self._module_rubrics_data = data.get("module_rubrics", [])
+        self._course_rubrics_data = data.get("course_rubrics", [])
+        module_prompt = self._format_rubrics_for_prompt(self._module_rubrics_data)
+        course_prompt = self._format_rubrics_for_prompt(self._course_rubrics_data)
+        return module_prompt, course_prompt
+
+    @staticmethod
+    def _format_rubrics_for_prompt(rubrics: list) -> str:
+        """Render rubric list into a structured prompt block.
+
+        Format per rubric:
+          ### {name} (`{id}`) — weight {weight}
+          {description}
+
+          Scoring guide:
+            • low:  ...
+            • mid:  ...
+            • high: ...
+
+          Evaluation checklist — answer each before scoring:
+            1. Question one?
+            2. Question two?
+        """
+        lines = []
+        for r in rubrics:
+            rid   = r.get("id", "?")
+            name  = r.get("name", rid)
+            desc  = (r.get("description") or "").strip()
+            w     = r.get("weight", 1.0)
+            guide = r.get("scoring_guide", {})
+            qs    = r.get("evaluation_questions", [])
+
+            lines.append(f"### {name} (`{rid}`) — weight {w}")
+            if desc:
+                lines.append(desc)
+
+            if guide:
+                lines.append("\nScoring guide:")
+                for band, text in guide.items():
+                    lines.append(f"  • {band}: {text}")
+
+            if qs:
+                lines.append("\nEvaluation checklist — answer each before scoring:")
+                for i, q in enumerate(qs, 1):
+                    lines.append(f"  {i}. {q}")
+
+            lines.append("")  # blank line between rubrics
+
+        return "\n".join(lines).strip()
 
     # -------------------------------------------------------------------------
     # SHARED UTILITIES
@@ -271,14 +317,16 @@ MODULE RUBRICS (score each segment on ONLY these 5 dimensions):
 SCORING PROCEDURE — Three-Step Calibration (apply for every rubric, every segment):
 For each rubric dimension, follow these three steps IN ORDER before committing a score:
 
-  Step 1 — IDENTIFY: Find 2-3 specific evidence pieces from the segment text relevant to this rubric.
-           Quote short phrases. If no evidence exists, the score must be in band 1-3.
+  Step 1 — CHECKLIST: Work through each question in that rubric's "Evaluation checklist" above.
+           For each question, find 1-2 specific evidence pieces from the segment text (quote short
+           phrases) and mark whether the answer is positive (↑) or negative (↓).
+           If no evidence exists for a question, treat it as negative (↓).
 
-  Step 2 — ANCHOR to one of these bands based on evidence quality:
-           1-3 (Poor):      Missing, wrong, or fundamentally inadequate
-           4-6 (Adequate):  Present but generic, trivial, or incomplete
-           7-8 (Good):      Solid, well-crafted, clearly effective
-           9-10 (Excellent): Exceptional, publishable quality, best-in-class
+  Step 2 — ANCHOR to one of these bands based on your checklist answers:
+           1-3 (Poor):      Most checklist answers negative; fundamentally inadequate
+           4-6 (Adequate):  Mixed answers; present but generic, trivial, or incomplete
+           7-8 (Good):      Most checklist answers positive; solid and effective
+           9-10 (Excellent): All checklist answers strongly positive; publishable quality
 
   Step 3 — DIFFERENTIATE within the band. Pick the specific integer.
            A score of 7 vs 8 must be justified by a concrete quality difference.
@@ -291,9 +339,9 @@ CALIBRATION ANCHORS — scores MUST match these exemplars. If in doubt, score lo
     8 — Stays on-topic throughout; every paragraph directly serves the stated learning goal
 
   text_readability:
-    3 — Walls of code or dense paragraphs with no explanatory prose; impossible without an instructor
-    5 — Readable but has occasional run-on sentences, unexplained acronyms, or abrupt transitions
-    8 — Clear, well-paced prose; every code block is preceded or followed by plain-language explanation
+    3 — Walls of code or dense paragraphs; frequent grammatical errors, typos, or ambiguous phrasing blocks comprehension
+    5 — Readable overall but has run-on sentences, unexplained acronyms, or occasional grammar/spelling issues
+    8 — Clear, well-paced, grammatically correct prose; every code block preceded or followed by plain-language explanation
 
   pedagogical_clarity:
     3 — New jargon introduced without any definition; inconsistent or contradictory terminology
