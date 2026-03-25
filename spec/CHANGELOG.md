@@ -1,4 +1,24 @@
-## 2026-03-06 — Three-Feature Extension: AI Metadata, TOC Segmentation, Tree Output
+## 2026-03-24 — Critic v3 Cross-Validation: Planning & ADRs
+
+**Type:** Refinement (x6) + Bug Fix (x3)
+
+**What changed:**
+- `spec/DECISIONS.md`: Appended ADR-029 (Visual TOC parser & bold-frequency header filter), ADR-030 (cross-segment awareness & 3-step calibration), ADR-031 (explicit academic audience detection), ADR-032 (rubric description sharpening), ADR-033 (single CourseMetadata source of truth), ADR-034 (exercise classifier overhaul & frontmatter boilerplate).
+- `spec/QUESTIONS.md`: Appended Q-027 (rubric disambiguation) and Q-028 (exercise pattern false positives).
+- `spec/TASKS.md`: Added TASK-045 through TASK-051 covering all 16 critic.v3 issues.
+- `spec/CHANGELOG.md`: This entry.
+
+**Why it changed:**
+Manual human cross-validation against the MRCET Python Programming Notes PDF revealed 16 issues across segmentation, metadata extraction, rubric definitions, and evaluator prompts, producing a Module Gate average inflation of +1.65 and a catastrophic +5 error on `business_relevance`.
+
+**Affected artifacts:**
+- ADR-023 → Amended by ADR-029 (visual TOC tier)
+- ADR-021 → Amended by ADR-030 (3-step calibration replaces binary anchor)
+- ADR-029 through ADR-034 → New
+- Q-027, Q-028 → New (Answered)
+- TASK-045 through TASK-051 → New (Pending)
+
+
 
 **Type:** Feature Addition (x2) + Refinement (x1)
 

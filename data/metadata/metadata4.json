@@ -1,0 +1,28 @@
+{
+  "title": "Introduction to Data Science",
+  "author": "using a search engine",
+  "target_audience": "developing high-performance or production code, such as C, C++, or Java, while others are more focused on prototyping code, among these the best known",
+  "subject": "Data Science",
+  "source": "course2.pdf",
+  "description": "This course introduces Data Science, defining it as a methodology for inferring actionable insights from data. It explores the novelty of data science, driven by 'datification' (quantifying previously unquantified aspects of the world) and the 'democratization of data analysis' through accessible computational resources and open-source tools. The curriculum covers four key strategies for data exploration: probing reality, pattern discovery, predicting future events, and understanding people and the world. It also emphasizes the importance of selecting appropriate programming languages and tools, with a focus on Python for its flexibility and extensive ecosystem. Topics include data operations, descriptive statistics, exploratory data analysis, statistical inference, supervised learning (SVM, random forest), regression analysis (linear, multiple, polynomial), unsupervised learning (clustering), and network analysis (graphs, social networks, PageRank).",
+  "prerequisites": [
+    "No formal prerequisites required"
+  ],
+  "learning_outcomes": [
+    "An understanding of the data operations",
+    "An overview of simple statistical models and the basics of machine learning techniques of regression.",
+    "An understanding good practices of data science",
+    "Skills in the use of tools such as python, IDE",
+    "Understanding of the basics of the Supervised learning",
+    "Describe what Data Science is and the skill sets needed to be a data scientist",
+    "Explain the significance of exploratory data analysis (EDA) in data science",
+    "Ability to learn the supervised learning, SVM",
+    "Apply basic machine learning algorithms (Linear Regression)",
+    "Explore the Networks, PageRank"
+  ],
+  "publisher": "Tables by themes Population and social conditions Education",
+  "year": "2022",
+  "isbn": "978-3-319-50016-4",
+  "level": "Introductory",
+  "contributing_authors": []
+}

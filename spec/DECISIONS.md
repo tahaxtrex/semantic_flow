@@ -603,3 +603,144 @@ The Module Gate now scores 5 rubrics; the Course Gate scores 5 rubrics.
 - All Pydantic schemas, field lists, tool schemas, and rubrics.yaml are consistent.
 
 **Linked Requirements:** critic.v2.md Issue 4, ADR-016, Q-016
+
+---
+
+## ADR-029: Visual TOC Parser & Bold-Frequency Header Filter
+
+**Date:** 2026-03-24
+**Status:** Accepted
+**Amends:** ADR-023 (adds a second tier between bookmark TOC and font-heuristic fallback)
+**Addresses:** critic.v3.md Issues 1, 2, 12, 14
+
+**Context:**
+The MRCET Python Programming Notes PDF has no bookmark outline, so `_extract_toc()` returns `([], 142)`. However, pages 4-5 contain a clearly structured visual Table of Contents (`UNIT I ... 1`, `UNIT II ... 35`, etc.) that would give perfect 5-unit segmentation. Instead, the pipeline falls back to the font-heuristic path, where the `or is_bold` clause in `_extract_blocks_with_headers()` triggers on 497 bold lines (e.g. `"Output:"` appears 107 times), producing 19 mis-segmented fragments. Additionally, `_merge_short_blocks()` has no unit boundary awareness and can merge across UNIT boundaries.
+
+**Decision:**
+1. **Visual TOC parser:** Add `_extract_visual_toc()` as a second tier in the extraction hierarchy. Scan pages 2-8 for lines matching `r'(UNIT|Chapter|Module|Part)\s+[\dIVXivx]+.*?(\d{1,4})\s*$'`. If ≥2 entries with monotonically increasing page numbers are found, use them as segment boundaries.
+2. **Bold-frequency filter:** In `_extract_blocks_with_headers()`, after collecting all bold lines, compute a frequency count. Bold text appearing on >5% of pages is a repeated label (not a heading) — exclude from header candidacy. Bold-only headers must additionally: be fully bold, NOT end with `:`, and not be a common label word (`"Example"`, `"Syntax"`, `"Note"`, `"Output"`).
+3. **`bold_as_header` toggle:** Add `bold_as_header: bool = True` to `SmartSegmenter.__init__()` for PDFs that misuse bold.
+4. **Content-based running header filter (Issue 14):** After extracting all lines, strip any text that appears on >30% of pages at a similar Y-position (within 5pt).
+5. **Unit boundary merge barriers (Issue 12):** In `_merge_short_blocks()`, detect `UNIT\s+[–-]?\s*[IVX\d]+` patterns in block text/headings and treat them as absolute merge barriers.
+
+**Consequences:**
+- PDFs with visual TOCs produce accurate unit-aligned segments.
+- Bold-heavy PDFs no longer produce catastrophic over-segmentation.
+- Running headers within the body zone are stripped content-wise, not just position-wise.
+- Unit boundaries are preserved during merge.
+
+**Linked Requirements:** FR-003, FR-004, ADR-023, critic.v3.md Issues 1, 2, 12, 14
+
+---
+
+## ADR-030: Cross-Segment Awareness & Three-Step Calibration in Module Gate
+
+**Date:** 2026-03-24
+**Status:** Accepted
+**Amends:** ADR-021 (replaces binary above/below-midpoint anchor with three-step calibration)
+**Addresses:** critic.v3.md Issues 8, 9, 13
+
+**Context:**
+The Module Gate evaluates each segment in isolation. Repetition across segments (e.g., segments 9 and 10 repeating function composition/recursion), recurring trivial variables (`a=5`, `"mrcet college"`), and non-progressive examples are invisible. Additionally, the binary scoring anchor ("is evidence above or below 5?") pushes 68% of scores to ≥7, causing systematic +1.65 inflation. The Course Gate receives only topic summaries, not quality signals, leading to business_relevance scoring +5 higher than manual assessment.
+
+**Decision:**
+1. **Cross-segment context (Issue 8):** For each segment after the first in a batch, inject "Previous segment covered: {prev_summary}" into the Module Gate prompt. For each batch after the first, include a brief "Course narrative so far" comprising previous segment summaries (truncated to ~500 chars).
+2. **Three-step calibration (Issue 13):** Replace the binary "above/below 5" scoring procedure with: (1) IDENTIFY 2-3 specific evidence pieces, (2) ANCHOR to the band (1-3 poor, 4-6 adequate, 7-8 good, 9-10 excellent), (3) DIFFERENTIATE within band. Add explicit calibration anchors preventing inflation (e.g. trivial variables ≤6 on example_concreteness).
+3. **Quality signals in Course Gate (Issue 9):** For each segment summary sent to the Course Gate, append Module Gate scores. Add a "MODULE GATE QUALITY SUMMARY" section with average scores, lowest-scoring segment, and detected repetition warnings.
+
+**Consequences:**
+- Repetition and non-progressive examples are detectable across segments.
+- Scores spread across the full 1-10 range instead of clustering at 7-9.
+- Course Gate has quality signals, not just topic summaries.
+- Minor token increase per batch (~200-400 tokens for context summaries).
+
+**Linked Requirements:** FR-005, ADR-011, ADR-021, critic.v3.md Issues 8, 9, 13
+
+---
+
+## ADR-031: Explicit Academic Audience Detection in Metadata
+
+**Date:** 2026-03-24
+**Status:** Accepted
+**Addresses:** critic.v3.md Issue 5
+
+**Context:**
+The MRCET PDF explicitly states "B.TECH III YEAR – II SEM" and "III Year B. Tech CSE -II SEM", but the metadata pipeline detected "introduction" in the text (from "Introduction to Python"), mapped it to `level: "Introductory"`, then used the generic `level_audience_map` to produce `"Introductory college students or beginners with no prior background"`. This is flatly wrong — the students are third-year CS engineering students.
+
+**Decision:**
+1. Before inferring level from generic keywords, scan for explicit academic year/semester markers: `r'(\d+(?:st|nd|rd|th)\s+year|[IVX]+\s+year|year\s+[IVX\d]+|B\.?Tech|M\.?Tech|semester\s+[IVX\d]+)'`. If found, extract the year/semester and use it as the audience directly.
+2. The level inference should not trigger on "introduction" when it appears as a topic name (`"Introduction to Python"`) rather than a course-level descriptor. Check context: if "introduction" is followed by "to [Subject]", it describes the subject, not the course level.
+3. Add explicit academic audience regex patterns for university lecture notes.
+
+**Consequences:**
+- PDFs with explicit year/semester markers get correct target audience.
+- "Introduction to X" no longer triggers false Introductory level inference.
+- All prompts use correct audience context, preventing score inflation.
+
+**Linked Requirements:** FR-001, FR-002, critic.v3.md Issue 5
+
+---
+
+## ADR-032: Rubric Description Sharpening (Business Relevance & Example Concreteness)
+
+**Date:** 2026-03-24
+**Status:** Accepted
+**Addresses:** critic.v3.md Issues 6, 7, 11
+
+**Context:**
+`business_relevance` scored 8 (pipeline) vs 3 (manual) because the rubric description lets the LLM pattern-match topic coverage against learning outcomes. `example_concreteness` averaged 8.15 vs 6 because the LLM interprets "concrete" as "actual code that runs" rather than "code that solves a real-world problem." Additionally, `instructional_alignment` has an invalid `1.0j` weight (Python complex literal; YAML reads as string).
+
+**Decision:**
+1. Rewrite `business_relevance` description to explicitly require real-world professional tasks, projects, case studies, or industry scenarios. Add scoring anchors that punish purely syntactic content.
+2. Sharpen `example_concreteness` scoring guide: mid-band explicitly calls out trivial variables (`a=5, x=[1,2,3]`); high-band requires realistic scenarios.
+3. Fix `instructional_alignment` weight from `1.0j` to `1.0`.
+
+**Consequences:**
+- LLM can no longer conflate topic coverage with applied relevance.
+- Trivial code examples are correctly anchored at mid-range, not high.
+- Weight parsing no longer risks crash from complex number literal.
+
+**Linked Requirements:** NFR-002, critic.v3.md Issues 6, 7, 11
+
+---
+
+## ADR-033: Single CourseMetadata Source of Truth
+
+**Date:** 2026-03-24
+**Status:** Accepted
+**Addresses:** critic.v3.md Issue 10
+
+**Context:**
+`src/models.py` defines `CourseMetadata` with `title: Optional[str] = None`, while `src/metadata.py` defines its own `CourseMetadata` with `title: str = "Unknown"`. `MetadataIngestor` returns `metadata.py`'s version; the evaluator imports `models.py`'s version. The semantic mismatch means field-presence checks behave differently depending on which class produced the object.
+
+**Decision:**
+Delete `CourseMetadata` from `src/models.py`. All imports should use `src/metadata.py`'s `CourseMetadata` as the single source of truth. The `"Unknown"` sentinel convention is preferred because it avoids `None`-handling in f-strings.
+
+**Consequences:**
+- Single schema definition; no more semantic mismatch.
+- `models.py` imports `CourseMetadata` from `metadata.py` and re-exports it.
+- Existing imports via `from src.models import CourseMetadata` continue to work.
+
+**Linked Requirements:** critic.v3.md Issue 10
+
+---
+
+## ADR-034: Exercise Classifier Overhaul & Frontmatter Boilerplate Detection
+
+**Date:** 2026-03-24
+**Status:** Accepted
+**Addresses:** critic.v3.md Issues 3, 4
+
+**Context:**
+Segment 5 of the MRCET PDF (`"1. Built-in functions - Functions that are built into Python."`) starts with `"1."`, matching the exercise pattern `r'^\d+[\.)]'`. The heading match alone classifies the entire segment (6 pages of instructional content) as `exercise`, silently dropping it. Separately, institutional boilerplate (accreditation text, syllabus listing) is not detected as frontmatter because the heading `"(Autonomous Institution – UGC, Govt. of India)"` matches no frontmatter pattern.
+
+**Decision:**
+1. **Exercise classifier fix (Issue 3):** Require exercise-pattern headings to ALSO contain exercise-specific keywords: `r'^\d+[\.)\s]\s*(exercise|practice|problem|question|write\s+a\s+program)'`. Headings like `"1. Built-in functions"` no longer trigger. Body-text exercise patterns exclude matches inside `[CODE]...[/CODE]` blocks. Numbered explanatory lists are distinguished from numbered problems.
+2. **Frontmatter boilerplate detection (Issue 4):** Add patterns to `_FRONTMATTER_PATTERNS` for institutional markers: `UGC|AICTE|JNTUH|affiliated to|accredited by|autonomous institution`, `syllabus|course code|credit hours`. Add a content-based heuristic: if a segment contains both UNIT markers and textbook references, classify as frontmatter. Check the first 500 characters for institutional markers.
+
+**Consequences:**
+- Numbered instructional headings no longer trigger false exercise classification.
+- Institutional boilerplate and syllabus pages are correctly classified as frontmatter.
+- 6+ pages of instructional content are no longer silently dropped.
+
+**Linked Requirements:** ADR-012, critic.v3.md Issues 3, 4

@@ -7,1061 +7,586 @@
     <title>SemanticFlow — Evaluation Viewer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
-        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
     <style>
         :root {
-            --bg: #0d0f1a;
-            --surface: #13162a;
-            --surface2: #1a1e35;
-            --surface3: #212541;
+            --bg: #0c0e18;
+            --surface: #141728;
+            --surface2: #1b1f36;
+            --surface3: #232845;
             --border: #2a2f52;
             --border2: #363c66;
-            --text: #e2e4f0;
-            --text-dim: #7a80a8;
-            --text-muted: #4a506e;
-            --accent: #6b7fff;
-            --accent2: #4a56d4;
-            --green: #22c55e;
-            --amber: #f59e0b;
-            --red: #ef4444;
-            --green-dim: rgba(34, 197, 94, 0.12);
-            --amber-dim: rgba(245, 158, 11, 0.12);
-            --red-dim: rgba(239, 68, 68, 0.12);
+            --text: #e8eaf4;
+            --text-dim: #8b90b8;
+            --text-muted: #555a7e;
+            --accent: #7b8aff;
+            --accent2: #5b66e8;
+            --accent-dim: rgba(123, 138, 255, 0.10);
+            --green: #34d399;
+            --green-dim: rgba(52, 211, 153, 0.10);
+            --amber: #fbbf24;
+            --amber-dim: rgba(251, 191, 36, 0.10);
+            --red: #f87171;
+            --red-dim: rgba(248, 113, 113, 0.10);
             --mono: 'IBM Plex Mono', monospace;
             --sans: 'DM Sans', sans-serif;
-            --panel-w: 460px;
-            --topbar-h: 56px;
+            --topbar-h: 52px;
+            --radius: 12px;
+            --radius-sm: 8px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px var(--border);
+            --shadow-hover: 0 4px 12px rgba(0,0,0,0.4), 0 0 0 1px var(--border2);
+            --max-w: 960px;
         }
 
-        *,
-        *::before,
-        *::after {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+        [data-theme="light"] {
+            --bg: #f0f2f8;
+            --surface: #ffffff;
+            --surface2: #f6f7fb;
+            --surface3: #eceef5;
+            --border: #d8dbe6;
+            --border2: #c4c8d8;
+            --text: #1a1d30;
+            --text-dim: #555a7e;
+            --text-muted: #8b90b8;
+            --accent: #5b66e8;
+            --accent2: #4650cc;
+            --accent-dim: rgba(91, 102, 232, 0.08);
+            --green: #10b981;
+            --green-dim: rgba(16, 185, 129, 0.08);
+            --amber: #d97706;
+            --amber-dim: rgba(217, 119, 6, 0.08);
+            --red: #ef4444;
+            --red-dim: rgba(239, 68, 68, 0.08);
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px var(--border);
+            --shadow-hover: 0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px var(--border2);
         }
 
-        html,
-        body {
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
             height: 100%;
             background: var(--bg);
             color: var(--text);
             font-family: var(--sans);
             font-size: 14px;
-            line-height: 1.5;
-            overflow: hidden;
+            line-height: 1.55;
         }
 
-        /* ── TOP BAR ── */
+        /* ── TOPBAR ── */
         .topbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
+            position: sticky; top: 0; z-index: 100;
             height: var(--topbar-h);
             background: var(--surface);
             border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            gap: 16px;
+            display: flex; align-items: center; gap: 12px;
             padding: 0 20px;
-            z-index: 100;
         }
-
         .topbar-logo {
-            font-family: var(--mono);
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--accent);
-            letter-spacing: 0.05em;
-            white-space: nowrap;
-            flex-shrink: 0;
+            font-family: var(--mono); font-size: 13px; font-weight: 600;
+            color: var(--accent); letter-spacing: 0.04em; white-space: nowrap; flex-shrink: 0;
         }
-
-        .topbar-sep {
-            width: 1px;
-            height: 24px;
-            background: var(--border);
-            flex-shrink: 0;
-        }
-
+        .topbar-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
         .topbar-course {
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            flex: 1;
-            min-width: 0;
+            font-size: 13px; font-weight: 500; color: var(--text);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;
         }
-
         .topbar-meta {
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-dim);
-            white-space: nowrap;
-            flex-shrink: 0;
+            font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .tb-btn {
+            display: flex; align-items: center; gap: 5px;
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text-dim); padding: 5px 10px; border-radius: 6px;
+            cursor: pointer; font-family: var(--sans); font-size: 12px; font-weight: 500;
+            transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+        }
+        .tb-btn:hover { background: var(--surface3); border-color: var(--border2); color: var(--text); }
+        .tb-btn svg { flex-shrink: 0; }
+        #file-input { display: none; }
+        #file-switcher {
+            display: none; background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 5px 8px; border-radius: 6px;
+            font-family: var(--sans); font-size: 12px; cursor: pointer; flex-shrink: 0;
         }
 
-        .load-btn {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--surface3);
-            border: 1px solid var(--border2);
-            color: var(--text);
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-family: var(--sans);
-            font-size: 12px;
-            font-weight: 500;
-            transition: background 0.15s, border-color 0.15s;
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
-
-        .load-btn:hover {
-            background: var(--border);
-            border-color: var(--accent2);
-        }
-
-        .load-btn svg {
-            flex-shrink: 0;
-        }
-
-        #file-input {
-            display: none;
-        }
-
-        /* ── LAYOUT ── */
-        .layout {
-            display: flex;
-            height: 100vh;
-            padding-top: var(--topbar-h);
-        }
-
-        /* ── MAIN SCROLL ── */
-        .main {
-            flex: 1;
-            overflow-y: auto;
-            padding: 24px 28px;
-            min-width: 0;
-            transition: margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .main.panel-open {
-            margin-right: var(--panel-w);
-        }
+        /* ── SCROLL CONTAINER ── */
+        .scroll { height: calc(100vh - var(--topbar-h)); overflow-y: auto; overflow-x: hidden; }
+        .container { max-width: var(--max-w); margin: 0 auto; padding: 20px 24px 60px; }
 
         /* ── EMPTY STATE ── */
         .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: calc(100vh - var(--topbar-h) - 48px);
-            gap: 16px;
-            color: var(--text-muted);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: calc(100vh - var(--topbar-h) - 48px); gap: 14px; color: var(--text-muted);
         }
-
-        .empty-icon {
-            font-size: 48px;
-            opacity: 0.4;
-        }
-
-        .empty-title {
-            font-size: 18px;
-            font-weight: 500;
-            color: var(--text-dim);
-        }
-
-        .empty-sub {
-            font-size: 13px;
-            text-align: center;
-            max-width: 320px;
-            line-height: 1.6;
-        }
-
+        .empty-icon { font-size: 52px; opacity: 0.3; }
+        .empty-title { font-size: 18px; font-weight: 600; color: var(--text-dim); }
+        .empty-sub { font-size: 13px; text-align: center; max-width: 340px; line-height: 1.6; }
         .empty-btn {
-            margin-top: 8px;
-            background: var(--accent2);
-            color: #fff;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-family: var(--sans);
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
+            margin-top: 8px; background: var(--accent2); color: #fff; border: none;
+            padding: 10px 22px; border-radius: var(--radius-sm);
+            font-family: var(--sans); font-size: 13px; font-weight: 500; cursor: pointer;
             transition: background 0.15s;
         }
+        .empty-btn:hover { background: var(--accent); }
 
-        .empty-btn:hover {
-            background: var(--accent);
+        /* ── CARDS ── */
+        .card {
+            background: var(--surface); border-radius: var(--radius);
+            box-shadow: var(--shadow); margin-bottom: 16px;
+            transition: box-shadow 0.2s;
+        }
+        .card-pad { padding: 20px; }
+
+        /* ── COURSE HERO ── */
+        .hero-title { font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+        .hero-desc {
+            font-size: 13px; color: var(--text-dim); line-height: 1.65; margin-bottom: 14px;
+        }
+        .meta-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 10px; margin-bottom: 14px;
+        }
+        .meta-item {
+            background: var(--surface2); border-radius: var(--radius-sm); padding: 8px 12px;
+        }
+        .meta-label {
+            font-family: var(--mono); font-size: 10px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.06em;
+            color: var(--text-muted); margin-bottom: 2px;
+        }
+        .meta-value { font-size: 13px; color: var(--text); font-weight: 500; }
+        .eval-bar {
+            display: flex; gap: 16px; flex-wrap: wrap;
+            font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+            padding-top: 10px; border-top: 1px solid var(--border);
+        }
+        .eval-bar span { color: var(--text-dim); font-weight: 500; }
+        .meta-expand {
+            font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+            cursor: pointer; user-select: none; padding: 6px 0; display: flex;
+            align-items: center; gap: 6px; transition: color 0.15s;
+        }
+        .meta-expand:hover { color: var(--accent); }
+        .meta-expand-chevron { transition: transform 0.2s; display: inline-block; font-size: 9px; }
+        .meta-expand-chevron.open { transform: rotate(90deg); }
+        .meta-list { display: none; padding: 0 0 8px; }
+        .meta-list.open { display: block; }
+        .meta-list li {
+            list-style: none; font-size: 12px; color: var(--text-dim); line-height: 1.6;
+            padding: 3px 0 3px 12px; border-left: 2px solid var(--border); margin-bottom: 2px;
         }
 
-        /* ── COURSE HEADER ── */
-        .course-header {
-            background: var(--surface);
+        /* ── GATE SECTION ── */
+        .gate-section { margin-bottom: 16px; }
+        .gate-header {
+            display: flex; align-items: center; gap: 14px; padding: 18px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+        .gate-badge {
+            width: 56px; height: 56px; border-radius: 12px; display: flex;
+            align-items: center; justify-content: center; flex-shrink: 0;
+            font-family: var(--mono); font-size: 20px; font-weight: 700;
+        }
+        .gate-badge.course-badge { background: var(--green-dim); color: var(--green); }
+        .gate-badge.module-badge { background: var(--accent-dim); color: var(--accent); }
+        .gate-info { flex: 1; min-width: 0; }
+        .gate-title {
+            font-family: var(--mono); font-size: 13px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.06em;
+        }
+        .gate-title.course { color: var(--green); }
+        .gate-title.module { color: var(--accent); }
+        .gate-subtitle { font-size: 12px; color: var(--text-muted); }
+
+        /* rubric rows inside gate */
+        .rubric-list { padding: 4px 0; }
+        .rubric-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 8px 20px; cursor: pointer; transition: background 0.12s;
+            border-radius: 0;
+        }
+        .rubric-row:hover { background: var(--surface2); }
+        .rubric-row.active { background: var(--accent-dim); }
+        .rubric-row-name {
+            font-size: 13px; color: var(--text); flex: 1; min-width: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .rubric-row-bar {
+            width: 100px; height: 6px; background: var(--surface3);
+            border-radius: 3px; overflow: hidden; flex-shrink: 0;
+        }
+        .rubric-row-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+        .rubric-row-score {
+            font-family: var(--mono); font-size: 13px; font-weight: 600;
+            width: 36px; text-align: right; flex-shrink: 0;
+        }
+
+        /* ── RUBRIC DETAIL (inline expand) ── */
+        .rubric-detail {
+            display: none; padding: 16px 20px; margin: 0;
+            background: var(--surface2); border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            animation: slideDown 0.2s ease;
+        }
+        .rubric-detail.open { display: block; }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .rd-top { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+        .rd-score-badge {
+            font-family: var(--mono); font-size: 28px; font-weight: 700; flex-shrink: 0;
+        }
+        .rd-bar-wrap {
+            flex: 1; height: 8px; background: var(--surface3); border-radius: 4px; overflow: hidden;
+        }
+        .rd-bar { height: 100%; border-radius: 4px; transition: width 0.5s; }
+        .rd-out-of {
+            font-family: var(--mono); font-size: 12px; color: var(--text-muted); flex-shrink: 0;
+        }
+        .rd-section-label {
+            font-family: var(--mono); font-size: 10px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.07em;
+            color: var(--text-muted); margin: 14px 0 6px;
+        }
+        .rd-section-label:first-of-type { margin-top: 0; }
+        .rd-desc {
+            font-size: 13px; color: var(--text-dim); line-height: 1.6;
+            padding: 10px 12px; background: var(--surface); border-radius: var(--radius-sm);
+        }
+        .rd-rationale {
+            font-size: 13px; color: var(--text); line-height: 1.65; font-style: italic;
+            padding: 10px 14px; background: var(--surface); border-radius: var(--radius-sm);
+            border-left: 3px solid var(--accent);
+        }
+        /* scoring guide anchors */
+        .sg-stack { display: flex; flex-direction: column; gap: 4px; }
+        .sg-anchor {
+            font-family: var(--mono); font-size: 11px; color: var(--text-dim); line-height: 1.5;
+            padding: 5px 10px; background: var(--surface); border-radius: 6px;
+            border-left: 3px solid var(--border);
+        }
+        .sg-anchor-high { border-left-color: var(--green); }
+        .sg-anchor-mid { border-left-color: var(--amber); }
+        .sg-anchor-low { border-left-color: var(--red); }
+        .sg-tag {
+            font-weight: 600; text-transform: uppercase; font-size: 10px;
+            letter-spacing: 0.04em; margin-right: 6px;
+        }
+
+        /* per-segment scores table inside rubric detail */
+        .seg-scores-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+        .seg-scores-table th {
+            text-align: left; font-family: var(--mono); font-size: 10px;
+            text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
+            padding: 4px 6px; border-bottom: 1px solid var(--border);
+        }
+        .seg-scores-table td {
+            padding: 5px 6px; border-bottom: 1px solid var(--border);
+            font-size: 12px; color: var(--text-dim); vertical-align: top;
+        }
+        .seg-scores-table tr:last-child td { border-bottom: none; }
+        .seg-scores-table .td-score { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+        .seg-scores-table .td-rat { font-size: 11px; color: var(--text-muted); line-height: 1.5; max-width: 500px; }
+        .seg-scores-table .td-id { font-family: var(--mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+        /* ── SEGMENT CARDS ── */
+        .seg-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 10px; padding: 14px 20px;
+        }
+        .seg-card {
+            background: var(--surface2); border-radius: var(--radius-sm); padding: 12px 14px;
+            cursor: pointer; transition: all 0.15s; border: 1px solid transparent;
+        }
+        .seg-card:hover { background: var(--surface3); border-color: var(--border); }
+        .seg-card.active { border-color: var(--accent); background: var(--accent-dim); }
+        .seg-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .seg-card-id {
+            font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+            background: var(--surface3); padding: 1px 6px; border-radius: 4px;
+        }
+        .seg-card-heading {
+            font-size: 13px; font-weight: 500; color: var(--text);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+        }
+        .seg-card-bottom { display: flex; align-items: center; gap: 8px; }
+        .seg-card-bar {
+            flex: 1; height: 5px; background: var(--surface3); border-radius: 3px; overflow: hidden;
+        }
+        .seg-card-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+        .seg-card-score {
+            font-family: var(--mono); font-size: 12px; font-weight: 600; flex-shrink: 0;
+        }
+        .seg-section-header {
+            padding: 14px 20px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .seg-section-title {
+            font-family: var(--mono); font-size: 12px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim);
+        }
+        .seg-section-count {
+            font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+            background: var(--surface3); padding: 1px 8px; border-radius: 10px;
+        }
+
+        /* ── SEGMENT DETAIL (inline expand) ── */
+        .seg-detail {
+            display: none; padding: 20px; margin: 0 20px 14px;
+            background: var(--surface2); border-radius: var(--radius-sm);
             border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 20px 24px;
-            margin-bottom: 20px;
+            animation: slideDown 0.2s ease;
         }
-
-        .course-title {
-            font-size: 20px;
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 6px;
+        .seg-detail.open { display: block; }
+        .seg-detail-title {
+            font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px;
         }
-
-        .course-pills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
+        .seg-detail-summary {
+            font-size: 13px; color: var(--text-dim); line-height: 1.6;
+            padding: 10px 12px; background: var(--surface); border-radius: var(--radius-sm);
             margin-bottom: 12px;
         }
-
-        .pill {
-            background: var(--surface3);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 2px 8px;
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-dim);
+        .sd-label {
+            font-family: var(--mono); font-size: 10px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.07em;
+            color: var(--text-muted); margin: 12px 0 6px;
+            cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px;
+            transition: color 0.15s;
         }
+        .sd-label:hover { color: var(--accent); }
+        .sd-chevron { font-size: 9px; transition: transform 0.2s; display: inline-block; }
+        .sd-chevron.open { transform: rotate(90deg); }
+        .sd-collapse { display: none; }
+        .sd-collapse.open { display: block; }
 
-        .pill.accent {
-            border-color: var(--accent2);
-            color: var(--accent);
+        /* score grid inside segment detail */
+        .sd-score-grid { display: flex; flex-direction: column; gap: 6px; }
+        .sd-score-row { display: flex; align-items: center; gap: 10px; }
+        .sd-score-name {
+            font-size: 13px; color: var(--text-dim); width: 170px; flex-shrink: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-
-        .eval-stats {
-            display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-muted);
+        .sd-score-bar {
+            flex: 1; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden;
         }
-
-        .eval-stat span {
-            color: var(--text-dim);
+        .sd-score-bar-fill { height: 100%; border-radius: 3px; }
+        .sd-score-val {
+            font-family: var(--mono); font-size: 12px; font-weight: 600;
+            width: 32px; text-align: right; flex-shrink: 0;
         }
-
-        /* ── GATE CARDS ── */
-        .gate-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 20px;
+        /* rationale items */
+        .sd-rat-item { padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+        .sd-rat-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .sd-rat-name {
+            font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+            letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 3px;
         }
-
-        @media (max-width: 720px) {
-            .gate-cards {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .gate-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 18px 20px;
-            cursor: pointer;
-            transition: border-color 0.15s, background 0.15s;
-        }
-
-        .gate-card:hover {
-            background: var(--surface2);
-        }
-
-        .gate-card.module-card {
-            border-left: 3px solid #6b7fff;
-        }
-
-        .gate-card.course-card {
-            border-left: 3px solid var(--green);
-        }
-
-        .gate-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 14px;
-        }
-
-        .gate-name {
-            font-family: var(--mono);
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-dim);
-        }
-
-        .gate-overall {
-            font-family: var(--mono);
-            font-size: 22px;
-            font-weight: 600;
-            color: var(--text);
-        }
-
-        .gate-overall small {
-            font-size: 13px;
-            color: var(--text-muted);
-            font-weight: 400;
-        }
-
-        .gate-rubric-mini {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .rubric-mini-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .rubric-mini-name {
-            font-family: var(--mono);
-            font-size: 10px;
-            color: var(--text-dim);
-            width: 150px;
-            flex-shrink: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .mini-bar-wrap {
-            flex: 1;
-            height: 4px;
-            background: var(--surface3);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-
-        .mini-bar {
-            height: 100%;
-            border-radius: 2px;
-            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .rubric-mini-score {
-            font-family: var(--mono);
-            font-size: 10px;
-            width: 30px;
-            text-align: right;
-            flex-shrink: 0;
-        }
-
-        /* ── SECTION TITLE ── */
-        .section-title {
-            font-family: var(--mono);
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--text-muted);
-            margin-bottom: 10px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        /* ── ASSESSMENT TREE ── */
-        .tree-wrap {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-
-        .tree-gate {
-            border-bottom: 1px solid var(--border);
-        }
-
-        .tree-gate:last-child {
-            border-bottom: none;
-        }
-
-        .tree-gate-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 16px;
-            cursor: pointer;
-            background: var(--surface2);
-            user-select: none;
-            transition: background 0.15s;
-        }
-
-        .tree-gate-header:hover {
-            background: var(--surface3);
-        }
-
-        .tree-chevron {
-            width: 16px;
-            height: 16px;
-            flex-shrink: 0;
-            color: var(--text-muted);
-            transition: transform 0.2s;
-        }
-
-        .tree-chevron.open {
-            transform: rotate(90deg);
-        }
-
-        .tree-gate-label {
-            font-family: var(--mono);
-            font-size: 12px;
-            font-weight: 600;
-            flex: 1;
-        }
-
-        .tree-gate-label.module {
-            color: var(--accent);
-        }
-
-        .tree-gate-label.course {
-            color: var(--green);
-        }
-
-        .tree-gate-score {
-            font-family: var(--mono);
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        .tree-rubrics {
-            display: none;
-        }
-
-        .tree-rubrics.open {
-            display: block;
-        }
-
-        .tree-rubric-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 9px 16px 9px 42px;
-            border-top: 1px solid var(--border);
-            cursor: pointer;
-            transition: background 0.12s;
-        }
-
-        .tree-rubric-row:hover {
-            background: var(--surface2);
-        }
-
-        .tree-rubric-row.active {
-            background: var(--surface3);
-        }
-
-        .rubric-arrow {
-            font-size: 9px;
-            color: var(--text-muted);
-            flex-shrink: 0;
-        }
-
-        .rubric-name {
-            font-family: var(--mono);
-            font-size: 12px;
-            color: var(--text-dim);
-            flex: 1;
-        }
-
-        .rubric-bar-wrap {
-            width: 120px;
-            height: 5px;
-            background: var(--surface3);
-            border-radius: 3px;
-            overflow: hidden;
-            flex-shrink: 0;
-        }
-
-        .rubric-bar {
-            height: 100%;
-            border-radius: 3px;
-            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .rubric-score {
-            font-family: var(--mono);
-            font-size: 12px;
-            font-weight: 600;
-            width: 36px;
-            text-align: right;
-            flex-shrink: 0;
-        }
-
-        /* ── SEGMENTS LIST ── */
-        .segments-wrap {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-
-        .segments-header {
-            padding: 12px 16px;
-            background: var(--surface2);
-            border-bottom: 1px solid var(--border);
-            font-family: var(--mono);
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-muted);
-        }
-
-        .segment-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 16px;
-            border-top: 1px solid var(--border);
-            cursor: pointer;
-            transition: background 0.12s;
-        }
-
-        .segment-row:first-of-type {
-            border-top: none;
-        }
-
-        .segment-row:hover {
-            background: var(--surface2);
-        }
-
-        .segment-row.active {
-            background: var(--surface3);
-        }
-
-        .seg-id {
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-muted);
-            width: 32px;
-            flex-shrink: 0;
-        }
-
-        .seg-heading {
-            flex: 1;
-            font-size: 13px;
-            color: var(--text);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            min-width: 0;
-        }
-
-        .seg-avg-bar-wrap {
-            width: 80px;
-            height: 5px;
-            background: var(--surface3);
-            border-radius: 3px;
-            overflow: hidden;
-            flex-shrink: 0;
-        }
-
-        .seg-avg-score {
-            font-family: var(--mono);
-            font-size: 11px;
-            font-weight: 600;
-            width: 32px;
-            text-align: right;
-            flex-shrink: 0;
+        .sd-rat-text { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+        /* full text */
+        .sd-full-text {
+            font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+            line-height: 1.75; white-space: pre-wrap; word-break: break-word;
+            background: var(--bg); border-radius: var(--radius-sm); padding: 16px;
+            max-height: 70vh; overflow-y: auto;
         }
 
         /* ── SCORE COLORS ── */
-        .score-high {
-            color: var(--green);
-        }
+        .score-high { color: var(--green); }
+        .score-mid { color: var(--amber); }
+        .score-low { color: var(--red); }
+        .bar-high { background: var(--green); }
+        .bar-mid { background: var(--amber); }
+        .bar-low { background: var(--red); }
 
-        .score-mid {
-            color: var(--amber);
-        }
+        /* ── SCROLLBAR ── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
-        .score-low {
-            color: var(--red);
-        }
-
-        .bar-high {
-            background: var(--green);
-        }
-
-        .bar-mid {
-            background: var(--amber);
-        }
-
-        .bar-low {
-            background: var(--red);
-        }
-
-        /* ── SLIDE-OUT PANEL ── */
-        .panel {
-            position: fixed;
-            top: var(--topbar-h);
-            right: 0;
-            width: var(--panel-w);
-            height: calc(100vh - var(--topbar-h));
-            background: var(--surface);
-            border-left: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            transform: translateX(100%);
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 50;
-            overflow: hidden;
-        }
-
-        .panel.open {
-            transform: translateX(0);
-        }
-
-        .panel-topbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 14px 18px;
-            border-bottom: 1px solid var(--border);
-            background: var(--surface2);
-            flex-shrink: 0;
-        }
-
-        .panel-title {
-            font-family: var(--mono);
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-dim);
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-        }
-
-        .panel-close {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 4px;
-            border: 1px solid var(--border2);
-            background: transparent;
-            color: var(--text-dim);
-            cursor: pointer;
-            font-size: 14px;
-            line-height: 1;
-            transition: background 0.12s, color 0.12s;
-        }
-
-        .panel-close:hover {
-            background: var(--surface3);
-            color: var(--text);
-        }
-
-        .panel-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 18px;
-        }
-
-        /* panel: rubric view */
-        .panel-rubric-name {
-            font-family: var(--mono);
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 4px;
-        }
-
-        .panel-score-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        .panel-score-big {
-            font-family: var(--mono);
-            font-size: 32px;
-            font-weight: 600;
-        }
-
-        .panel-bar-wrap {
-            flex: 1;
-            height: 8px;
-            background: var(--surface3);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .panel-bar {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.5s;
-        }
-
-        .panel-label {
-            font-family: var(--mono);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-muted);
-            margin-bottom: 6px;
-            margin-top: 16px;
-        }
-
-        .panel-rationale {
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 12px 14px;
-            font-size: 13px;
-            color: var(--text);
-            line-height: 1.65;
-            font-style: italic;
-        }
-
-        /* panel: all-segment scores table */
-        .seg-scores-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 4px;
-        }
-
-        .seg-scores-table th {
-            text-align: left;
-            font-family: var(--mono);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-muted);
-            padding: 4px 6px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .seg-scores-table td {
-            padding: 6px 6px;
-            border-bottom: 1px solid var(--border);
-            font-size: 12px;
-            color: var(--text-dim);
-            vertical-align: top;
-        }
-
-        .seg-scores-table tr:last-child td {
-            border-bottom: none;
-        }
-
-        .seg-scores-table .td-score {
-            font-family: var(--mono);
-            font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .seg-scores-table .td-rat {
-            font-size: 11px;
-            color: var(--text-muted);
-            line-height: 1.5;
-            max-width: 240px;
-        }
-
-        .seg-scores-table .td-id {
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-muted);
-            white-space: nowrap;
-        }
-
-        /* panel: segment view */
-        .toggle-layer {
-            margin-bottom: 12px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .toggle-layer-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 14px;
-            background: var(--surface2);
-            cursor: pointer;
-            user-select: none;
-            transition: background 0.12s;
-        }
-
-        .toggle-layer-header:hover {
-            background: var(--surface3);
-        }
-
-        .toggle-layer-title {
-            font-family: var(--mono);
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-dim);
-        }
-
-        .toggle-layer-chevron {
-            color: var(--text-muted);
-            font-size: 10px;
-            transition: transform 0.2s;
-        }
-
-        .toggle-layer-chevron.open {
-            transform: rotate(180deg);
-        }
-
-        .toggle-layer-body {
-            display: none;
-            padding: 14px;
-            border-top: 1px solid var(--border);
-        }
-
-        .toggle-layer-body.open {
-            display: block;
-        }
-
-        /* scores layer */
-        .score-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .score-grid-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .score-grid-name {
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-dim);
-            width: 160px;
-            flex-shrink: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .score-grid-bar-wrap {
-            flex: 1;
-            height: 6px;
-            background: var(--surface3);
-            border-radius: 3px;
-            overflow: hidden;
-        }
-
-        .score-grid-val {
-            font-family: var(--mono);
-            font-size: 11px;
-            font-weight: 600;
-            width: 28px;
-            text-align: right;
-            flex-shrink: 0;
-        }
-
-        /* rationale layer */
-        .rat-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .rat-item-name {
-            font-family: var(--mono);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-        }
-
-        .rat-item-text {
-            font-size: 12px;
-            color: var(--text-dim);
-            line-height: 1.6;
-        }
-
-        .rat-item {
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .rat-item:last-child {
-            border-bottom: none;
-            padding-bottom: 0;
-        }
-
-        /* full text layer */
-        .seg-full-text {
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-dim);
-            line-height: 1.7;
-            white-space: pre-wrap;
-            word-break: break-word;
-            background: var(--bg);
-            border-radius: 4px;
-            padding: 12px;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .seg-summary-box {
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 10px 12px;
-            font-size: 12px;
-            color: var(--text-dim);
-            line-height: 1.6;
-            margin-bottom: 12px;
-        }
-
-        .seg-summary-label {
-            font-family: var(--mono);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-        }
-
-        /* scrollbar */
-        ::-webkit-scrollbar {
-            width: 5px;
-            height: 5px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--border2);
-            border-radius: 3px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--text-muted);
-        }
-
-        /* animations */
+        /* ── ANIMATION ── */
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(6px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        .fade-in { animation: fadeIn 0.3s ease forwards; }
 
-        .fade-in {
-            animation: fadeIn 0.25s ease forwards;
-        }
+        .no-data { text-align: center; padding: 30px 20px; color: var(--text-muted); font-size: 13px; }
 
-        .no-data {
-            text-align: center;
-            padding: 40px 20px;
-            color: var(--text-muted);
-            font-size: 13px;
+        /* ── RESPONSIVE ── */
+        @media (max-width: 640px) {
+            .meta-grid { grid-template-columns: 1fr 1fr; }
+            .seg-grid { grid-template-columns: 1fr; }
+            .container { padding: 12px 12px 40px; }
+            .gate-header { flex-wrap: wrap; }
         }
     </style>
 </head>
 
 <body>
-
-    <!-- TOP BAR -->
+    <!-- TOPBAR -->
     <div class="topbar">
         <div class="topbar-logo">⬡ SemanticFlow</div>
         <div class="topbar-sep"></div>
         <div class="topbar-course" id="topbar-course">Evaluation Viewer</div>
         <div class="topbar-meta" id="topbar-meta"></div>
-        <!-- File switcher (visible once multiple files are loaded) -->
-        <select id="file-switcher"
-            style="display:none;background:var(--surface3);border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:6px;font-family:var(--sans);font-size:12px;cursor:pointer;flex-shrink:0;"
-            onchange="switchFile(this.value)"></select>
-        <button class="load-btn" onclick="document.getElementById('file-input').click()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
+        <select id="file-switcher" onchange="switchFile(this.value)"></select>
+        <button class="tb-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+            <svg id="theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none">
+                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
             </svg>
-            Load outputs.json files
+            <svg id="theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+            </svg>
+        </button>
+        <button class="tb-btn" onclick="document.getElementById('file-input').click()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Load JSON
         </button>
         <input type="file" id="file-input" accept=".json" multiple onchange="loadFiles(event)">
     </div>
 
-    <!-- LAYOUT -->
-    <div class="layout">
-        <div class="main" id="main">
-
+    <!-- SCROLL -->
+    <div class="scroll">
+        <div class="container" id="container">
             <!-- EMPTY STATE -->
             <div class="empty-state" id="empty-state">
                 <div class="empty-icon">◈</div>
                 <div class="empty-title">No evaluations loaded</div>
-                <div class="empty-sub">Select one or more SemanticFlow <code
-                        style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:12px;">outputs.json</code>
-                    files to explore their pedagogical assessment trees.</div>
-                <button class="empty-btn" onclick="document.getElementById('file-input').click()">Load outputs.json
-                    files</button>
+                <div class="empty-sub">Load one or more SemanticFlow evaluation JSON files to explore their pedagogical assessment results.</div>
+                <button class="empty-btn" onclick="document.getElementById('file-input').click()">Load evaluation files</button>
             </div>
 
-            <!-- CONTENT (hidden until loaded) -->
+            <!-- CONTENT -->
             <div id="content" style="display:none">
-
-                <!-- Course header -->
-                <div class="course-header fade-in" id="course-header"></div>
-
-                <!-- Gate cards -->
-                <div class="gate-cards fade-in" id="gate-cards"></div>
-
-                <!-- Assessment Tree -->
-                <div class="section-title">Assessment Tree</div>
-                <div class="tree-wrap fade-in" id="tree-wrap"></div>
-
-                <!-- Segments -->
-                <div class="section-title" id="seg-section-title">Instructional Segments</div>
-                <div class="segments-wrap fade-in" id="segments-wrap"></div>
-
+                <div id="course-hero"></div>
+                <div id="gate-course"></div>
+                <div id="gate-module"></div>
+                <div id="segments-section"></div>
             </div>
-        </div>
-
-        <!-- SLIDE-OUT PANEL -->
-        <div class="panel" id="panel">
-            <div class="panel-topbar">
-                <div class="panel-title" id="panel-title">Detail</div>
-                <button class="panel-close" onclick="closePanel()">✕</button>
-            </div>
-            <div class="panel-body" id="panel-body"></div>
         </div>
     </div>
 
     <script>
-        // ─── STATE ───────────────────────────────────────────────────────────────────
+        // ─── STATE ──────────────────────────────────────────────────────
         let DATA = null;
-        let FILES = {}; // filename -> parsed JSON
-        let activePanel = null; // 'rubric:{gate}:{key}' | 'segment:{id}'
+        let FILES = {};
+        let activeRubric = null;  // 'course:key' or 'module:key'
+        let activeSeg = null;     // segment_id
 
-        // ─── FILE LOADING ─────────────────────────────────────────────────────────────
+        // ─── RUBRIC DEFINITIONS ─────────────────────────────────────────
+        const RUBRICS = {
+            module: {
+                goal_focus: {
+                    name: "Goal Focus",
+                    description: "Does the text concentrate on explaining core concepts relevant to the stated Learning Outcomes from the Course Metadata, or does it include unnecessary digressions and fluff? It should prioritize 'Must-Know' information over supplemental details.",
+                    scoring_guide: {
+                        low: "1-3: Significant digressions, unclear objectives, much irrelevant content",
+                        mid: "4-6: Mostly on-topic but with some unnecessary tangents",
+                        high: "7-10: Tightly focused on stated objectives, minimal digressions"
+                    }
+                },
+                text_readability: {
+                    name: "Text Readability",
+                    description: "How accessible is the language used? Does the learner spend effort understanding terminology rather than concepts? Ensure content is grammatically correct and avoids ambiguities.",
+                    scoring_guide: {
+                        low: "1-3: Dense, inaccessible language; frequent ambiguities or grammar errors",
+                        mid: "4-6: Generally readable but some passages are unnecessarily complex",
+                        high: "7-10: Clear, concise, grammatically correct, appropriate for the intended audience"
+                    }
+                },
+                pedagogical_clarity: {
+                    name: "Pedagogical Clarity",
+                    description: "Does the text avoid unexplained jargon? Is sentence structure appropriate for the intended audience? Technical terminology must be defined consistently upon first use.",
+                    scoring_guide: {
+                        low: "1-3: Heavy unexplained jargon, undefined terms throughout",
+                        mid: "4-6: Some terms undefined, occasional clarity issues",
+                        high: "7-10: All terms defined at first use, consistently clear language"
+                    }
+                },
+                example_concreteness: {
+                    name: "Example Concreteness",
+                    description: "Are examples concrete, relatable, and plausible representations of real-world situations? Scenarios should be realistic.",
+                    scoring_guide: {
+                        low: "1-3: Abstract, contrived, or missing examples",
+                        mid: "4-6: Some examples present but not always relatable or realistic",
+                        high: "7-10: Rich, concrete, real-world examples throughout"
+                    }
+                },
+                example_coherence: {
+                    name: "Example Coherence",
+                    description: "Are examples consistent and thematically connected across sections? Examples should build on each other rather than being isolated vignettes.",
+                    scoring_guide: {
+                        low: "1-3: Examples contradict each other or are thematically scattered",
+                        mid: "4-6: Some thematic connection but inconsistencies exist",
+                        high: "7-10: Examples build on each other and form a coherent narrative"
+                    }
+                }
+            },
+            course: {
+                prerequisite_alignment: {
+                    name: "Prerequisite Alignment",
+                    description: "Across the whole course, are foundational concepts introduced before dependent ones? Do the assumed prerequisites match the explicitly stated Prerequisites from the Course Metadata? Does the course ordering respect the Target Audience's expected knowledge base?",
+                    scoring_guide: {
+                        low: "1-3: Concepts used before introduction, prerequisites unstated or incorrect",
+                        mid: "4-6: Mostly ordered but some gaps in prerequisite handling across modules",
+                        high: "7-10: Clear logical progression across all modules, all prerequisites explicit"
+                    }
+                },
+                structural_usability: {
+                    name: "Structural Usability",
+                    description: "Is the course as a whole logically organized? Are navigation and module boundaries clear? Are the overall structure, table of contents, and guidelines explicit? Technical requirements and support resources should be easily locatable.",
+                    scoring_guide: {
+                        low: "1-3: Poor organization, missing navigation cues, unclear module structure",
+                        mid: "4-6: Adequate structure but some modules are hard to navigate or locate",
+                        high: "7-10: Well-organized course with clear navigation and explicit module structure"
+                    }
+                },
+                business_relevance: {
+                    name: "Business Relevance",
+                    description: "Are specific, practical takeaways immediately applicable to the stated Learning Outcomes from the Course Metadata? Does the overall course directly address real-world performance gaps that the specified Target Audience faces?",
+                    scoring_guide: {
+                        low: "1-3: Course content is theoretical with no practical application",
+                        mid: "4-6: Some practical elements but not consistently tied to real performance gaps",
+                        high: "7-10: Directly addresses performance gaps with actionable takeaways throughout"
+                    }
+                },
+                fluidity_continuity: {
+                    name: "Fluidity and Continuity",
+                    description: "Do transitions between modules feel coherent and intentional, or does the course jump abruptly between unrelated topics? Does the narrative thread carry naturally from one module to the next?",
+                    scoring_guide: {
+                        low: "1-3: Jarring module-to-module transitions, disconnected topics, abrupt jumps",
+                        mid: "4-6: Some rough inter-module transitions but overall followable",
+                        high: "7-10: Smooth, logical flow between modules throughout the entire course"
+                    }
+                },
+                instructional_alignment: {
+                    name: "Instructional Alignment",
+                    description: "Across the entire course, are the learning content, activities, and stated Learning Outcomes (from the Course Metadata) clearly aligned? Do the modules collectively deliver on the course's explicit learning objectives? Are instructional strategies consistent with the defined Target Audience and Level?",
+                    scoring_guide: {
+                        low: "1-3: Significant misalignment between stated objectives and course content; outcomes not addressed",
+                        mid: "4-6: Partial alignment — some modules deliver on outcomes, others diverge",
+                        high: "7-10: Course content, activities, and objectives are fully aligned across all modules"
+                    }
+                }
+            }
+        };
+
+        function rubricName(type, key) {
+            return RUBRICS[type]?.[key]?.name || key;
+        }
+
+        // ─── FILE LOADING ───────────────────────────────────────────────
         function loadFiles(e) {
             const files = Array.from(e.target.files);
             if (!files.length) return;
@@ -1069,11 +594,8 @@
             files.forEach(file => {
                 const reader = new FileReader();
                 reader.onload = evt => {
-                    try {
-                        FILES[file.name] = JSON.parse(evt.target.result);
-                    } catch (err) {
-                        console.warn('Could not parse ' + file.name + ': ' + err.message);
-                    }
+                    try { FILES[file.name] = JSON.parse(evt.target.result); }
+                    catch (err) { console.warn('Could not parse ' + file.name + ': ' + err.message); }
                     loaded++;
                     if (loaded === files.length) onAllLoaded();
                 };
@@ -1085,15 +607,11 @@
         function onAllLoaded() {
             const names = Object.keys(FILES);
             if (!names.length) return;
-            // Populate switcher
-            const switcher = document.getElementById('file-switcher');
-            switcher.innerHTML = names.map(n =>
-                `<option value="${esc(n)}">${esc(n)}</option>`
-            ).join('');
-            switcher.style.display = names.length > 1 ? 'block' : 'none';
-            // Load first file
+            const sw = document.getElementById('file-switcher');
+            sw.innerHTML = names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+            sw.style.display = names.length > 1 ? 'block' : 'none';
             DATA = FILES[names[0]];
-            switcher.value = names[0];
+            sw.value = names[0];
             render();
         }
 
@@ -1103,38 +621,33 @@
             render();
         }
 
-        // ─── SCORE HELPERS ────────────────────────────────────────────────────────────
-        function scoreClass(s) {
-            if (s >= 8) return 'score-high';
-            if (s >= 6) return 'score-mid';
-            return 'score-low';
-        }
-        function barClass(s) {
-            if (s >= 8) return 'bar-high';
-            if (s >= 6) return 'bar-mid';
-            return 'bar-low';
-        }
-        function barWidth(s) { return Math.round((s / 10) * 100) + '%'; }
-        function fmt(n) { return typeof n === 'number' ? n.toFixed(2) : '—'; }
-
+        // ─── HELPERS ────────────────────────────────────────────────────
+        function scoreClass(s) { return s >= 8 ? 'score-high' : s >= 6 ? 'score-mid' : 'score-low'; }
+        function barClass(s) { return s >= 8 ? 'bar-high' : s >= 6 ? 'bar-mid' : 'bar-low'; }
+        function barW(s) { return Math.round((s / 10) * 100) + '%'; }
+        function fmt(n) { return typeof n === 'number' ? n.toFixed(1) : '—'; }
         function segAvg(seg) {
-            const scores = seg.scores || {};
-            const vals = Object.values(scores).filter(v => typeof v === 'number' && v > 0);
-            if (!vals.length) return 0;
-            return vals.reduce((a, b) => a + b, 0) / vals.length;
+            const vals = Object.values(seg.scores || {}).filter(v => typeof v === 'number' && v > 0);
+            return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
         }
+        function esc(str) {
+            if (str == null) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+        function notEmpty(v) { return v && v !== 'Unknown' && v !== 'unknown'; }
 
-        // ─── MAIN RENDER ─────────────────────────────────────────────────────────────
+        // ─── RENDER ─────────────────────────────────────────────────────
         function render() {
             if (!DATA) return;
             document.getElementById('empty-state').style.display = 'none';
             document.getElementById('content').style.display = 'block';
+            activeRubric = null;
+            activeSeg = null;
             renderTopbar();
-            renderCourseHeader();
-            renderGateCards();
-            renderTree();
+            renderHero();
+            renderGate('course');
+            renderGate('module');
             renderSegments();
-            closePanel();
         }
 
         function renderTopbar() {
@@ -1145,323 +658,344 @@
                 [em.model_used, em.timestamp ? em.timestamp.slice(0, 10) : ''].filter(Boolean).join(' · ');
         }
 
-        function renderCourseHeader() {
+        function renderHero() {
             const m = DATA.course_metadata || {};
             const em = DATA.evaluation_meta || {};
-            const el = document.getElementById('course-header');
+            const el = document.getElementById('course-hero');
 
-            const pills = [
-                m.author && `<span class="pill">${esc(m.author)}</span>`,
-                m.publisher && `<span class="pill">${esc(m.publisher)}</span>`,
-                m.subject && `<span class="pill">${esc(m.subject)}</span>`,
-                m.level && `<span class="pill">${esc(m.level)}</span>`,
-                m.year && `<span class="pill">${esc(m.year)}</span>`,
-                em.prompt_version && `<span class="pill accent">prompt v${esc(em.prompt_version)}</span>`,
-            ].filter(Boolean).join('');
+            const desc = m.description
+                ? `<div class="hero-desc">${esc(m.description)}</div>` : '';
+
+            // metadata items
+            const items = [
+                m.author && { label: 'Author', value: m.author },
+                notEmpty(m.publisher) && { label: 'Publisher', value: m.publisher },
+                m.subject && { label: 'Subject', value: m.subject },
+                m.level && { label: 'Level', value: m.level },
+                notEmpty(m.year) && { label: 'Year', value: m.year },
+                m.target_audience && { label: 'Audience', value: m.target_audience },
+                notEmpty(m.isbn) && { label: 'ISBN', value: m.isbn },
+                m.contributing_authors?.length && { label: 'Contributors', value: m.contributing_authors.join(', ') },
+            ].filter(Boolean);
+
+            const grid = items.length ? `<div class="meta-grid">${items.map(i =>
+                `<div class="meta-item"><div class="meta-label">${esc(i.label)}</div><div class="meta-value">${esc(i.value)}</div></div>`
+            ).join('')}</div>` : '';
 
             const scored = em.instructional_segments_scored ?? '?';
             const total = em.total_segments ?? '?';
             const excl = em.excluded_segments ?? '?';
 
+            function expandList(id, label, items) {
+                if (!items?.length) return '';
+                return `
+                    <div class="meta-expand" onclick="toggleExpand('${id}')">
+                        <span class="meta-expand-chevron" id="chev-${id}">▶</span>
+                        ${label} <span style="color:var(--text-muted)">(${items.length})</span>
+                    </div>
+                    <ul class="meta-list" id="${id}">
+                        ${items.map(i => `<li>${esc(i)}</li>`).join('')}
+                    </ul>`;
+            }
+
             el.innerHTML = `
-    <div class="course-title">${esc(m.title || 'Untitled Course')}</div>
-    <div class="course-pills">${pills}</div>
-    <div class="eval-stats">
-      <div>Model <span>${esc(em.model_used || '—')}</span></div>
-      <div>Scored <span>${scored}</span> / ${total} segments</div>
-      <div>Excluded <span>${excl}</span></div>
-      <div>Source <span>${esc(m.source || '—')}</span></div>
-    </div>
-  `;
+            <div class="card card-pad fade-in">
+                <div class="hero-title">${esc(m.title || 'Untitled Course')}</div>
+                ${desc}
+                ${grid}
+                <div class="eval-bar">
+                    <div>Model <span>${esc(em.model_used || '—')}</span></div>
+                    <div>Scored <span>${scored}</span> / ${total}</div>
+                    <div>Excluded <span>${excl}</span></div>
+                    ${notEmpty(m.source) ? `<div>Source <span>${esc(m.source)}</span></div>` : ''}
+                    ${em.prompt_version ? `<div>Prompt <span>v${esc(em.prompt_version)}</span></div>` : ''}
+                </div>
+                ${expandList('meta-prereqs', 'Prerequisites', m.prerequisites)}
+                ${expandList('meta-los', 'Learning Outcomes', m.learning_outcomes)}
+            </div>`;
         }
 
-        function renderGateCards() {
+        function toggleExpand(id) {
+            const list = document.getElementById(id);
+            const chev = document.getElementById('chev-' + id);
+            if (!list) return;
+            const open = list.classList.toggle('open');
+            if (chev) chev.classList.toggle('open', open);
+        }
+
+        // ─── GATE RENDER ────────────────────────────────────────────────
+        function renderGate(type) {
             const assessment = DATA.assessment || {};
-            const mg = assessment.module_gate || {};
-            const cg = assessment.course_gate || {};
-            const el = document.getElementById('gate-cards');
-
-            el.innerHTML = gateCard('module', 'Module Gate', mg) + gateCard('course', 'Course Gate', cg);
-        }
-
-        function gateCard(type, label, gate) {
+            const gate = type === 'course' ? assessment.course_gate : assessment.module_gate;
+            if (!gate) return;
+            const el = document.getElementById(`gate-${type}`);
             const overall = gate.overall_score ?? 0;
             const rubrics = gate.rubrics || {};
-            const rows = Object.entries(rubrics).map(([key, val]) => {
-                const s = val.score ?? 0;
-                return `
-      <div class="rubric-mini-row">
-        <div class="rubric-mini-name">${esc(key)}</div>
-        <div class="mini-bar-wrap"><div class="mini-bar ${barClass(s)}" style="width:${barWidth(s)}"></div></div>
-        <div class="rubric-mini-score ${scoreClass(s)}">${fmt(s)}</div>
-      </div>`;
-            }).join('');
-
-            return `
-    <div class="gate-card ${type}-card" onclick="openGateInTree('${type}')">
-      <div class="gate-card-header">
-        <div class="gate-name">${label}</div>
-        <div class="gate-overall ${scoreClass(overall)}">${fmt(overall)}<small> / 10</small></div>
-      </div>
-      <div class="gate-rubric-mini">${rows || '<div style="color:var(--text-muted);font-size:12px">No rubric data</div>'}</div>
-    </div>`;
-        }
-
-        function openGateInTree(type) {
-            const id = `tree-gate-${type}`;
-            const rubrics = document.getElementById(`tree-rubrics-${type}`);
-            const chevron = document.getElementById(`tree-chevron-${type}`);
-            if (rubrics && !rubrics.classList.contains('open')) {
-                rubrics.classList.add('open');
-                if (chevron) chevron.classList.add('open');
-            }
-            setTimeout(() => {
-                document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 50);
-        }
-
-        function renderTree() {
-            const assessment = DATA.assessment || {};
-            const mg = assessment.module_gate || {};
-            const cg = assessment.course_gate || {};
-            const el = document.getElementById('tree-wrap');
-
-            el.innerHTML =
-                treeGate('module', 'Module Gate', mg, true) +
-                treeGate('course', 'Course Gate', cg, true);
-        }
-
-        function treeGate(type, label, gate, open) {
-            const overall = gate.overall_score ?? 0;
-            const rubrics = gate.rubrics || {};
+            const badgeClass = type === 'course' ? 'course-badge' : 'module-badge';
+            const titleClass = type;
+            const label = type === 'course' ? 'Course Gate' : 'Module Gate';
+            const subtitle = type === 'course'
+                ? 'Holistic structure & coherence assessment'
+                : 'Per-segment content quality assessment';
 
             const rows = Object.entries(rubrics).map(([key, val]) => {
                 const s = val.score ?? 0;
                 return `
-      <div class="tree-rubric-row" id="rubric-row-${type}-${key}"
-           onclick="openRubricPanel('${type}','${key}')">
-        <span class="rubric-arrow">▶</span>
-        <span class="rubric-name">${esc(key)}</span>
-        <div class="rubric-bar-wrap"><div class="rubric-bar ${barClass(s)}" style="width:${barWidth(s)}"></div></div>
-        <span class="rubric-score ${scoreClass(s)}">${fmt(s)}</span>
-      </div>`;
+                <div class="rubric-row" id="rr-${type}-${key}" onclick="toggleRubricDetail('${type}','${key}')">
+                    <div class="rubric-row-name">${esc(rubricName(type, key))}</div>
+                    <div class="rubric-row-bar"><div class="rubric-row-bar-fill ${barClass(s)}" style="width:${barW(s)}"></div></div>
+                    <div class="rubric-row-score ${scoreClass(s)}">${fmt(s)}</div>
+                </div>
+                <div class="rubric-detail" id="rd-${type}-${key}"></div>`;
             }).join('');
 
-            return `
-    <div class="tree-gate" id="tree-gate-${type}">
-      <div class="tree-gate-header" onclick="toggleGate('${type}')">
-        <svg class="tree-chevron ${open ? 'open' : ''}" id="tree-chevron-${type}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="5,3 11,8 5,13"/>
-        </svg>
-        <span class="tree-gate-label ${type}">${label}</span>
-        <span class="tree-gate-score ${scoreClass(overall)}">${fmt(overall)}</span>
-      </div>
-      <div class="tree-rubrics ${open ? 'open' : ''}" id="tree-rubrics-${type}">
-        ${rows || '<div class="no-data">No rubric data available</div>'}
-      </div>
-    </div>`;
+            el.innerHTML = `
+            <div class="card gate-section fade-in">
+                <div class="gate-header">
+                    <div class="gate-badge ${badgeClass}">${fmt(overall)}</div>
+                    <div class="gate-info">
+                        <div class="gate-title ${titleClass}">${label}</div>
+                        <div class="gate-subtitle">${subtitle}</div>
+                    </div>
+                </div>
+                <div class="rubric-list">${rows || '<div class="no-data">No rubric data</div>'}</div>
+            </div>`;
         }
 
-        function toggleGate(type) {
-            document.getElementById(`tree-rubrics-${type}`)?.classList.toggle('open');
-            document.getElementById(`tree-chevron-${type}`)?.classList.toggle('open');
-        }
+        function toggleRubricDetail(type, key) {
+            const id = `${type}:${key}`;
+            const detailEl = document.getElementById(`rd-${type}-${key}`);
+            const rowEl = document.getElementById(`rr-${type}-${key}`);
+            if (!detailEl) return;
 
-        function renderSegments() {
-            const segs = (DATA.segments || []).filter(s => s.segment_type === 'instructional' && segAvg(s) > 0);
-            const wrap = document.getElementById('segments-wrap');
-            const title = document.getElementById('seg-section-title');
-
-            title.textContent = `Instructional Segments (${segs.length})`;
-
-            if (!segs.length) {
-                wrap.innerHTML = '<div class="no-data">No instructional segments found</div>';
-                return;
+            // close previous
+            if (activeRubric && activeRubric !== id) {
+                const [pt, pk] = activeRubric.split(':');
+                document.getElementById(`rd-${pt}-${pk}`)?.classList.remove('open');
+                document.getElementById(`rr-${pt}-${pk}`)?.classList.remove('active');
             }
 
-            wrap.innerHTML = `
-    <div class="segments-header">
-      #  ·  Heading  ·  Avg Score
-    </div>
-    ${segs.map(seg => {
-                const avg = segAvg(seg);
-                const heading = seg.heading || `Segment ${seg.segment_id}`;
-                return `
-        <div class="segment-row" id="seg-row-${seg.segment_id}" onclick="openSegmentPanel(${seg.segment_id})">
-          <span class="seg-id">#${seg.segment_id}</span>
-          <span class="seg-heading">${esc(heading)}</span>
-          <div class="seg-avg-bar-wrap"><div class="mini-bar ${barClass(avg)}" style="width:${barWidth(avg)};height:100%;border-radius:3px"></div></div>
-          <span class="seg-avg-score ${scoreClass(avg)}">${fmt(avg)}</span>
-        </div>`;
-            }).join('')}
-  `;
-        }
+            const opening = !detailEl.classList.contains('open');
+            detailEl.classList.toggle('open');
+            rowEl?.classList.toggle('active');
+            activeRubric = opening ? id : null;
 
-        // ─── PANEL ────────────────────────────────────────────────────────────────────
-        function openPanel(title, bodyHtml, activeKey) {
-            document.getElementById('panel-title').textContent = title;
-            document.getElementById('panel-body').innerHTML = bodyHtml;
-            document.getElementById('panel').classList.add('open');
-            document.getElementById('main').classList.add('panel-open');
-
-            // deactivate previous
-            document.querySelectorAll('.tree-rubric-row.active, .segment-row.active').forEach(el => el.classList.remove('active'));
-            if (activeKey) {
-                const el = document.getElementById(activeKey);
-                if (el) el.classList.add('active');
+            if (opening) {
+                detailEl.innerHTML = buildRubricDetail(type, key);
+                setTimeout(() => detailEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
             }
-            activePanel = activeKey;
         }
 
-        function closePanel() {
-            document.getElementById('panel').classList.remove('open');
-            document.getElementById('main').classList.remove('panel-open');
-            document.querySelectorAll('.tree-rubric-row.active, .segment-row.active').forEach(el => el.classList.remove('active'));
-            activePanel = null;
-        }
-
-        function openRubricPanel(type, key) {
-            const panelKey = `rubric-row-${type}-${key}`;
-            if (activePanel === panelKey) { closePanel(); return; }
-
+        function buildRubricDetail(type, key) {
             const assessment = DATA.assessment || {};
             const gate = type === 'module' ? assessment.module_gate : assessment.course_gate;
-            const rubrics = gate?.rubrics || {};
-            const rubric = rubrics[key] || {};
+            const rubric = gate?.rubrics?.[key] || {};
             const score = rubric.score ?? 0;
             const rationale = rubric.rationale || '—';
+            const def = RUBRICS[type]?.[key];
 
-            // Collect per-segment scores for this rubric (module gate only)
             let segTable = '';
             if (type === 'module') {
-                const segs = (DATA.segments || []).filter(s => s.segment_type === 'instructional' && (s.scores || {})[key] > 0);
+                const segs = (DATA.segments || []).filter(s =>
+                    s.segment_type === 'instructional' && (s.scores || {})[key] > 0);
                 if (segs.length) {
                     const rows = segs.map(seg => {
                         const s = (seg.scores || {})[key] ?? 0;
                         const rat = (seg.reasoning || {})[`${key}_rationale`] || '';
-                        const heading = seg.heading || `Segment ${seg.segment_id}`;
                         return `<tr>
-          <td class="td-id">#${seg.segment_id}</td>
-          <td class="td-score ${scoreClass(s)}">${fmt(s)}</td>
-          <td class="td-rat">${esc(rat.slice(0, 120))}${rat.length > 120 ? '…' : ''}</td>
-        </tr>`;
+                            <td class="td-id">#${seg.segment_id}</td>
+                            <td class="td-score ${scoreClass(s)}">${fmt(s)}</td>
+                            <td class="td-rat">${esc(rat.slice(0, 200))}${rat.length > 200 ? '…' : ''}</td>
+                        </tr>`;
                     }).join('');
                     segTable = `
-        <div class="panel-label">Per-Segment Scores</div>
-        <table class="seg-scores-table">
-          <thead><tr><th>Seg</th><th>Score</th><th>Rationale</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
+                        <div class="rd-section-label">Per-Segment Breakdown</div>
+                        <table class="seg-scores-table">
+                            <thead><tr><th>Seg</th><th>Score</th><th>Rationale</th></tr></thead>
+                            <tbody>${rows}</tbody>
+                        </table>`;
                 }
             }
 
-            const html = `
-    <div class="panel-rubric-name">${esc(key)}</div>
-    <div class="panel-score-row">
-      <div class="panel-score-big ${scoreClass(score)}">${fmt(score)}</div>
-      <div class="panel-bar-wrap"><div class="panel-bar ${barClass(score)}" style="width:${barWidth(score)}"></div></div>
-      <div style="font-family:var(--mono);font-size:12px;color:var(--text-muted);flex-shrink:0">/ 10</div>
-    </div>
-    <div class="panel-label">Best Rationale</div>
-    <div class="panel-rationale">${esc(rationale)}</div>
-    ${segTable}
-  `;
+            const defBlock = def ? `
+                <div class="rd-section-label">Definition</div>
+                <div class="rd-desc">${esc(def.description)}</div>
+                <div class="rd-section-label">Scoring Guide</div>
+                <div class="sg-stack">
+                    <div class="sg-anchor sg-anchor-high"><span class="sg-tag">High</span>${esc(def.scoring_guide.high)}</div>
+                    <div class="sg-anchor sg-anchor-mid"><span class="sg-tag">Mid</span>${esc(def.scoring_guide.mid)}</div>
+                    <div class="sg-anchor sg-anchor-low"><span class="sg-tag">Low</span>${esc(def.scoring_guide.low)}</div>
+                </div>` : '';
 
-            const gateLabel = type === 'module' ? 'Module Gate' : 'Course Gate';
-            openPanel(`${gateLabel} · ${key}`, html, panelKey);
+            return `
+                <div class="rd-top">
+                    <div class="rd-score-badge ${scoreClass(score)}">${fmt(score)}</div>
+                    <div class="rd-bar-wrap"><div class="rd-bar ${barClass(score)}" style="width:${barW(score)}"></div></div>
+                    <div class="rd-out-of">/ 10</div>
+                </div>
+                ${defBlock}
+                <div class="rd-section-label">Rationale</div>
+                <div class="rd-rationale">${esc(rationale)}</div>
+                ${segTable}`;
         }
 
-        function openSegmentPanel(segId) {
-            const panelKey = `seg-row-${segId}`;
-            if (activePanel === panelKey) { closePanel(); return; }
+        // ─── SEGMENTS ───────────────────────────────────────────────────
+        function renderSegments() {
+            const segs = (DATA.segments || []).filter(s => s.segment_type === 'instructional' && segAvg(s) > 0);
+            const el = document.getElementById('segments-section');
 
+            if (!segs.length) {
+                el.innerHTML = '<div class="card"><div class="no-data">No instructional segments found</div></div>';
+                return;
+            }
+
+            const cards = segs.map(seg => {
+                const avg = segAvg(seg);
+                const heading = seg.heading || `Segment ${seg.segment_id}`;
+                return `
+                <div class="seg-card" id="sc-${seg.segment_id}" onclick="toggleSegDetail(${seg.segment_id})">
+                    <div class="seg-card-top">
+                        <span class="seg-card-id">#${seg.segment_id}</span>
+                        <span class="seg-card-heading">${esc(heading)}</span>
+                    </div>
+                    <div class="seg-card-bottom">
+                        <div class="seg-card-bar"><div class="seg-card-bar-fill ${barClass(avg)}" style="width:${barW(avg)}"></div></div>
+                        <span class="seg-card-score ${scoreClass(avg)}">${fmt(avg)}</span>
+                    </div>
+                </div>`;
+            }).join('');
+
+            el.innerHTML = `
+            <div class="card fade-in">
+                <div class="seg-section-header">
+                    <div class="seg-section-title">Instructional Segments</div>
+                    <div class="seg-section-count">${segs.length}</div>
+                </div>
+                <div class="seg-grid">${cards}</div>
+                <div id="seg-detail-container"></div>
+            </div>`;
+        }
+
+        function toggleSegDetail(segId) {
+            const container = document.getElementById('seg-detail-container');
+            const card = document.getElementById(`sc-${segId}`);
+            if (!container) return;
+
+            // deactivate previous
+            if (activeSeg !== null) {
+                document.getElementById(`sc-${activeSeg}`)?.classList.remove('active');
+            }
+
+            if (activeSeg === segId) {
+                container.innerHTML = '';
+                activeSeg = null;
+                return;
+            }
+
+            activeSeg = segId;
+            card?.classList.add('active');
+            container.innerHTML = buildSegDetail(segId);
+            setTimeout(() => container.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+        }
+
+        function buildSegDetail(segId) {
             const seg = (DATA.segments || []).find(s => s.segment_id === segId);
-            if (!seg) return;
+            if (!seg) return '';
 
             const heading = seg.heading || `Segment ${segId}`;
             const scores = seg.scores || {};
             const reasoning = seg.reasoning || {};
 
-            // Layer 1: Scores
+            const summaryBlock = seg.summary
+                ? `<div class="seg-detail-summary">${esc(seg.summary)}</div>` : '';
+
+            // Scores
             const scoreRows = Object.entries(scores)
                 .filter(([, v]) => typeof v === 'number' && v > 0)
                 .map(([key, val]) => `
-      <div class="score-grid-row">
-        <div class="score-grid-name">${esc(key)}</div>
-        <div class="score-grid-bar-wrap"><div class="rubric-bar ${barClass(val)}" style="width:${barWidth(val)};height:100%"></div></div>
-        <div class="score-grid-val ${scoreClass(val)}">${fmt(val)}</div>
-      </div>`).join('');
+                    <div class="sd-score-row">
+                        <div class="sd-score-name">${esc(rubricName('module', key))}</div>
+                        <div class="sd-score-bar"><div class="sd-score-bar-fill ${barClass(val)}" style="width:${barW(val)}"></div></div>
+                        <div class="sd-score-val ${scoreClass(val)}">${fmt(val)}</div>
+                    </div>`).join('');
 
-            // Layer 2: Rationales
-            const ratRows = Object.entries(reasoning)
+            // Rationales
+            const ratItems = Object.entries(reasoning)
                 .filter(([, v]) => v && v.length > 0)
                 .map(([key, val]) => {
-                    const cleanKey = key.replace(/_rationale$/, '');
-                    return `<div class="rat-item">
-        <div class="rat-item-name">${esc(cleanKey)}</div>
-        <div class="rat-item-text">${esc(val)}</div>
-      </div>`;
+                    const clean = key.replace(/_rationale$/, '');
+                    return `<div class="sd-rat-item">
+                        <div class="sd-rat-name">${esc(rubricName('module', clean))}</div>
+                        <div class="sd-rat-text">${esc(val)}</div>
+                    </div>`;
                 }).join('');
 
-            const summaryBlock = seg.summary ? `
-    <div class="seg-summary-label">Summary</div>
-    <div class="seg-summary-box">${esc(seg.summary)}</div>` : '';
+            return `
+            <div class="seg-detail open">
+                <div class="seg-detail-title">#${segId} — ${esc(heading)}</div>
+                ${summaryBlock}
 
-            const html = `
-    ${summaryBlock}
-    <div class="toggle-layer">
-      <div class="toggle-layer-header" onclick="toggleLayer('layer-scores-${segId}')">
-        <span class="toggle-layer-title">Scores</span>
-        <span class="toggle-layer-chevron open" id="chev-scores-${segId}">▲</span>
-      </div>
-      <div class="toggle-layer-body open" id="layer-scores-${segId}">
-        <div class="score-grid">${scoreRows || '<div class="no-data">No scores</div>'}</div>
-      </div>
-    </div>
-    <div class="toggle-layer">
-      <div class="toggle-layer-header" onclick="toggleLayer('layer-rat-${segId}')">
-        <span class="toggle-layer-title">Rationales</span>
-        <span class="toggle-layer-chevron" id="chev-rat-${segId}">▲</span>
-      </div>
-      <div class="toggle-layer-body" id="layer-rat-${segId}">
-        <div class="rat-grid">${ratRows || '<div class="no-data">No rationales</div>'}</div>
-      </div>
-    </div>
-    <div class="toggle-layer">
-      <div class="toggle-layer-header" onclick="toggleLayer('layer-text-${segId}')">
-        <span class="toggle-layer-title">Full Text</span>
-        <span class="toggle-layer-chevron" id="chev-text-${segId}">▲</span>
-      </div>
-      <div class="toggle-layer-body" id="layer-text-${segId}">
-        <div class="seg-full-text">${esc(seg.text || '(no text)')}</div>
-      </div>
-    </div>
-  `;
+                <div class="sd-label" onclick="toggleSdSection('sd-scores-${segId}')">
+                    <span class="sd-chevron open" id="chev-sd-scores-${segId}">▶</span> Scores
+                </div>
+                <div class="sd-collapse open" id="sd-scores-${segId}">
+                    <div class="sd-score-grid">${scoreRows || '<div class="no-data">No scores</div>'}</div>
+                </div>
 
-            openPanel(`Seg #${segId} · ${heading.slice(0, 40)}`, html, panelKey);
+                <div class="sd-label" onclick="toggleSdSection('sd-rat-${segId}')">
+                    <span class="sd-chevron" id="chev-sd-rat-${segId}">▶</span> Rationales
+                </div>
+                <div class="sd-collapse" id="sd-rat-${segId}">
+                    ${ratItems || '<div class="no-data">No rationales</div>'}
+                </div>
+
+                <div class="sd-label" onclick="toggleSdSection('sd-text-${segId}')">
+                    <span class="sd-chevron" id="chev-sd-text-${segId}">▶</span> Full Text
+                </div>
+                <div class="sd-collapse" id="sd-text-${segId}">
+                    <div class="sd-full-text">${esc(seg.text || '(no text)')}</div>
+                </div>
+            </div>`;
         }
 
-        function toggleLayer(id) {
-            const body = document.getElementById(id);
-            if (!body) return;
-            const isOpen = body.classList.toggle('open');
-            const chevId = id.replace('layer-', 'chev-');
-            const chev = document.getElementById(chevId);
-            if (chev) chev.classList.toggle('open', isOpen);
+        function toggleSdSection(id) {
+            const el = document.getElementById(id);
+            const chev = document.getElementById('chev-' + id);
+            if (!el) return;
+            const open = el.classList.toggle('open');
+            if (chev) chev.classList.toggle('open', open);
         }
 
-        // ─── UTIL ─────────────────────────────────────────────────────────────────────
-        function esc(str) {
-            if (str == null) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
-        }
+        // ─── UTIL ───────────────────────────────────────────────────────
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                if (activeSeg !== null) {
+                    toggleSegDetail(activeSeg);
+                } else if (activeRubric) {
+                    const [t, k] = activeRubric.split(':');
+                    toggleRubricDetail(t, k);
+                }
+            }
+        });
 
-        // Close panel on Escape
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+        // ─── THEME ──────────────────────────────────────────────────────
+        function toggleTheme() {
+            const html = document.documentElement;
+            const isDark = html.getAttribute('data-theme') !== 'light';
+            const newTheme = isDark ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('sf-theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+        function updateThemeIcon(theme) {
+            document.getElementById('theme-icon-sun').style.display = theme === 'light' ? 'block' : 'none';
+            document.getElementById('theme-icon-moon').style.display = theme === 'light' ? 'none' : 'block';
+        }
+        (function() {
+            const saved = localStorage.getItem('sf-theme') || 'dark';
+            if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+            updateThemeIcon(saved);
+        })();
     </script>
 </body>
 

@@ -1,0 +1,28 @@
+{
+  "title": "Python Programming [ R17A0554 ] Lecture Notes Syllabus",
+  "author": "Windows User",
+  "target_audience": "Introductory college students or beginners with no prior background",
+  "subject": "Python and installation, data types: Int, float, Boolean, string, and list; varia",
+  "source": "course.pdf",
+  "description": "It was mainly developed for emphasis on code readability, and its syntax allows programmers to express concepts in fewer lines of code.",
+  "prerequisites": [
+    "No formal prerequisites required"
+  ],
+  "learning_outcomes": [
+    "To read and write simple Python programs.",
+    "To develop Python programs with conditionals and loops.",
+    "To define Python functions and call them.",
+    "To use Python data structures –- lists, tuples, dictionaries.",
+    "To do input/output with files in Python.",
+    "Read, write, execute by hand simple Python programs.",
+    "Structure simple Python programs for solving problems.",
+    "Decompose a Python program into functions.",
+    "Represent compound data using Python lists, tuples, dictionaries.",
+    "Read and write data from/to files in Python Programs"
+  ],
+  "publisher": "MALLA REDDY COLLEGE OF ENGINEERING & TECHNOLOGY",
+  "year": "2019",
+  "isbn": "Unknown",
+  "level": "Introductory",
+  "contributing_authors": []
+}
