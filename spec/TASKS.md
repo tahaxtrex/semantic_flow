@@ -194,3 +194,12 @@ The user wants to divide the pedagogical evaluation into two distinct gates to b
   - Spec ref: ADR-030, critic.v3.md Issues 9, 15, 16
   - Notes: Appended Module Gate scores to segment summaries. Added MODULE GATE QUALITY SUMMARY section with repetition detection. Fixed docstring (5 rubrics). Fixed "4 Course Gate rubrics" → dynamic reference.
 
+## Phase: Post-Critic-v3 Refinement
+
+- [x] TASK-052: Replace visual TOC Tier 2 with UNIT marker scan.
+  - Spec ref: ADR-035
+  - Notes: Removed `_extract_visual_toc()`. Added `_extract_unit_markers()` scanning all pages for UNIT I/II/etc. markers. Added `_extract_page_range_text()` shared helper (DRY). MRCET PDF now produces 6 segments instead of 19.
+
+- [x] TASK-053: Add `evaluation_questions` to all 10 rubrics + evaluator checklist rendering.
+  - Spec ref: ADR-036
+  - Notes: Added 4–5 `evaluation_questions` per rubric to `rubrics.yaml`. Added `instructional_alignment` anti-inflation anchors. Strengthened `text_readability` grammar check. Added `_format_rubrics_for_prompt()` to `evaluator.py`; Module Gate Step 1 now "CHECKLIST" instead of "IDENTIFY".

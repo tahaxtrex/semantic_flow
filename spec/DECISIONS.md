@@ -744,3 +744,57 @@ Segment 5 of the MRCET PDF (`"1. Built-in functions - Functions that are built i
 - 6+ pages of instructional content are no longer silently dropped.
 
 **Linked Requirements:** ADR-012, critic.v3.md Issues 3, 4
+
+---
+
+## ADR-035: UNIT Marker Scan Replaces Visual TOC Tier
+
+**Date:** 2026-03-25
+**Status:** Accepted
+**Amends:** ADR-029 (Visual TOC Parser)
+
+**Context:**
+ADR-029 introduced a visual TOC parser (Tier 2) that scanned pages 2–8 for printed table-of-contents lines matching `(UNIT|Chapter|Module|Part) <number> ... <page_num>`. This failed on MRCET-style PDFs where each unit has an explicit `UNIT I` / `UNIT – II` stamp on the first page of its section (spread throughout the document, not condensed on a TOC page). The result was fall-through to font-heuristics, producing 19 messy fragments instead of 5 clean unit segments.
+
+**Decision:**
+Replace `_extract_visual_toc()` with `_extract_unit_markers()`:
+- Scans **every page** (not just pages 2–8) for `UNIT\s*[-–]?\s*([IVX]+|\d+)` in the first 200 characters.
+- Converts Roman numerals to integers and deduplicates (first occurrence per unit number wins).
+- Validates monotonic page order; rejects if non-monotonic.
+- Extracts text for each unit range using the new shared `_extract_page_range_text()` helper.
+- Pages before the first UNIT marker are collected as a `Frontmatter` block.
+
+Add `_extract_page_range_text()` as a shared helper used by both Tier 1 (TOC) and Tier 2 (UNIT markers), eliminating ~100 lines of duplicate body-crop / table / code-marker logic.
+
+**Consequences:**
+- MRCET-style PDFs now produce 6 clean segments (Frontmatter + 5 Units) instead of 19 font-heuristic fragments.
+- Visual TOC scanner is removed; the `_VISUAL_TOC_LINE_RE` constant is no longer used.
+- PDFs without UNIT markers fall through to font-heuristics as before.
+
+**Linked Requirements:** ADR-001, ADR-029, critic.v3.md Issues 1, 2
+
+---
+
+## ADR-036: Rubric Evaluation Questions Schema & Grammar Check in text_readability
+
+**Date:** 2026-03-25
+**Status:** Accepted
+**Amends:** ADR-032 (Rubric Description Sharpening)
+
+**Context:**
+LLM rationales for Module Gate scores were inconsistent — the same evidence produced different scores across runs because the model lacked a structured checklist to work through. The `text_readability` rubric mentioned "grammatically correct" in passing but did not explicitly penalise grammar/spelling errors in its anchors or prompt.
+
+**Decision:**
+1. **`evaluation_questions` field (all 10 rubrics):** Add a YAML list of 4–5 evaluator questions per rubric. Questions are concrete, evidence-seeking, and binary (answerable ↑/↓). Example for `example_concreteness`: *"Do examples use realistic, domain-grounded data rather than trivial placeholders (a=5, x=[1,2,3])?"*
+2. **Grammar check in `text_readability`:** Updated description to explicitly include grammatical errors, spelling mistakes, and poorly constructed sentences as penalisable. Low-band anchor rewritten: *"frequent grammatical errors, typos, or ambiguous phrasing blocks comprehension"*.
+3. **`instructional_alignment` anti-inflation:** Added `WARNING — Anti-inflation rule` paragraph to description: topic-only coverage anchors at 6 (mid). Added `top: 9-10` band. Matches `business_relevance` treatment.
+4. **`_format_rubrics_for_prompt()` in `evaluator.py`:** Rubrics are no longer embedded as raw YAML. Each rubric renders as a structured prompt section: heading → description → scoring guide bullets → numbered evaluation checklist.
+5. **Module Gate `SCORING PROCEDURE`:** Step 1 renamed from "IDENTIFY" to "CHECKLIST" — instructs the LLM to work through the rubric's evaluation questions, mark ↑/↓ per question, then anchor to a band.
+
+**Consequences:**
+- Consistent, question-anchored rationales across all batches.
+- Grammar and spelling errors are now a named scoring factor, not an implicit consideration.
+- Rubric YAML is the single source of truth for both description and evaluation procedure.
+- Adding/editing a rubric question requires only editing `rubrics.yaml`; `evaluator.py` picks it up automatically.
+
+**Linked Requirements:** ADR-021, ADR-032, critic.v3.md Issues 6, 7, 11

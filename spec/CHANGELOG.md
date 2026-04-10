@@ -1,3 +1,22 @@
+## 2026-03-25 — UNIT Marker Segmentation, Rubric Checklist Format & Anti-Inflation Fixes
+
+**Type:** Feature (x1) + Refinement (x3) + Bug Fix (x1)
+
+**What changed:**
+- `src/segmenter.py`: Replaced `_extract_visual_toc()` (scanned pages 2–8 for a printed TOC table) with `_extract_unit_markers()` (scans all pages for live `UNIT I / UNIT II` markers in the top 200 chars). Added `_extract_page_range_text()` shared helper used by both TOC and UNIT paths (DRY). Resolves 19-fragment fragmentation on MRCET-style PDFs — now produces ~6 clean unit-aligned segments.
+- `config/rubrics.yaml`: Added `evaluation_questions` field to all 10 rubrics (5 Module + 5 Course). Questions serve as a structured checklist the LLM works through before anchoring a score. Added explicit grammar/typo penalisation to `text_readability` description and scoring guide. Sharpened `instructional_alignment` with anti-inflation anchors: topic-only coverage anchors at 6 (mid), matching the `business_relevance` treatment.
+- `src/evaluator.py`: Replaced raw `yaml.dump` rubric embedding with `_format_rubrics_for_prompt()` static method. Rubrics now render as structured sections (description + scoring guide bands + numbered evaluation checklist). Module Gate `SCORING PROCEDURE Step 1` updated from "IDENTIFY evidence" to "CHECKLIST — work through each rubric question, mark ↑/↓".
+
+**Why it changed:**
+Post-run analysis of `course_evaluation.json` revealed the MRCET PDF still produced 19 segments (visual TOC scanner missed MRCET's inline UNIT markers) and `instructional_alignment` was inflating to 8 on surface-level topic coverage. Rubric `evaluation_questions` added to provide consistent, question-anchored rationales.
+
+**Affected artifacts:**
+- ADR-029 → Amended by ADR-035 (UNIT marker scan supersedes visual TOC tier)
+- ADR-032 → Amended by ADR-036 (evaluation_questions format + grammar check)
+- TASK-052, TASK-053 → New (Completed)
+
+---
+
 ## 2026-03-24 — Critic v3 Cross-Validation: Planning & ADRs
 
 **Type:** Refinement (x6) + Bug Fix (x3)
