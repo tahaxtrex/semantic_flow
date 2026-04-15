@@ -1,0 +1,81 @@
+{
+  "title": "Think OS: A Brief Introduction to Operating Systems",
+  "author": "Allen B. Downey",
+  "publisher": "Green Tea Press",
+  "level": "undergraduate_introductory",
+  "target_audience": "Students learning C, particularly those in a 'Software Systems' class, who will write low-level applications in C or work on embedded systems.",
+  "prerequisites_stated": [],
+  "prerequisites_inferred": [
+    "Basic programming experience (e.g., Python)"
+  ],
+  "learning_outcomes_stated": [],
+  "learning_outcomes_inferred": [
+    "Learn C programming",
+    "Understand essential topics from operating systems, networks, databases, and embedded systems relevant to programmers",
+    "Gain a better understanding of program execution and how to optimize performance"
+  ],
+  "toc": [
+    {
+      "chapter_number": "1",
+      "title": "Compilation",
+      "page_number": 1
+    },
+    {
+      "chapter_number": "2",
+      "title": "Processes",
+      "page_number": 9
+    },
+    {
+      "chapter_number": "3",
+      "title": "Virtual memory",
+      "page_number": 15
+    },
+    {
+      "chapter_number": "4",
+      "title": "Files and file systems",
+      "page_number": 23
+    },
+    {
+      "chapter_number": "5",
+      "title": "More bits and bytes",
+      "page_number": 31
+    },
+    {
+      "chapter_number": "6",
+      "title": "Memory management",
+      "page_number": 39
+    },
+    {
+      "chapter_number": "7",
+      "title": "Caching",
+      "page_number": 45
+    },
+    {
+      "chapter_number": "8",
+      "title": "Multitasking",
+      "page_number": 57
+    },
+    {
+      "chapter_number": "9",
+      "title": "Threads",
+      "page_number": 63
+    },
+    {
+      "chapter_number": "10",
+      "title": "Condition variables",
+      "page_number": 71
+    },
+    {
+      "chapter_number": "11",
+      "title": "Semaphores in C",
+      "page_number": 81
+    }
+  ],
+  "draft_notes": "This book is an early draft (Version 0.7.4) and does not yet include figures.",
+  "source": "thinkos.pdf",
+  "subject": "",
+  "description": "",
+  "isbn": "",
+  "year": "2015",
+  "contributing_authors": []
+}

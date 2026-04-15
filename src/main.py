@@ -119,9 +119,10 @@ def main():
             )
             metadata = metadata_ingestor.ingest()
 
-            # Step 2: Segmentation
+            # Step 2: Segmentation (ADR-039: pass metadata so segmenter can
+            # validate tier chapter counts against the parsed TOC)
             logger.info("Step 2/5: Deterministic Segmentation")
-            segmenter = SmartSegmenter(pdf_path)
+            segmenter = SmartSegmenter(pdf_path, course_metadata=metadata)
             segments = segmenter.segment()
 
             if args.limit > 0:

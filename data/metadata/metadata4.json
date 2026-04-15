@@ -1,13 +1,11 @@
 {
   "title": "Introduction to Data Science",
-  "author": "using a search engine",
-  "target_audience": "developing high-performance or production code, such as C, C++, or Java, while others are more focused on prototyping code, among these the best known",
+  "author": "unknown",
+  "target_audience": "Undergraduate",
   "subject": "Data Science",
   "source": "course2.pdf",
-  "description": "This course introduces Data Science, defining it as a methodology for inferring actionable insights from data. It explores the novelty of data science, driven by 'datification' (quantifying previously unquantified aspects of the world) and the 'democratization of data analysis' through accessible computational resources and open-source tools. The curriculum covers four key strategies for data exploration: probing reality, pattern discovery, predicting future events, and understanding people and the world. It also emphasizes the importance of selecting appropriate programming languages and tools, with a focus on Python for its flexibility and extensive ecosystem. Topics include data operations, descriptive statistics, exploratory data analysis, statistical inference, supervised learning (SVM, random forest), regression analysis (linear, multiple, polynomial), unsupervised learning (clustering), and network analysis (graphs, social networks, PageRank).",
-  "prerequisites": [
-    "No formal prerequisites required"
-  ],
+  "description": "This course provides an introduction to Data Science, covering fundamental concepts, techniques, and applications. It explores data operations, simple statistical models, and basic machine learning techniques like regression, supervised learning (SVM, random forest), and unsupervised learning (clustering). The course emphasizes good practices in data science and develops skills in using tools such as Python and Integrated Development Environments (IDEs). Key topics include descriptive statistics, exploratory data analysis, statistical inference, and network analysis. The course also delves into the societal impact of datification and the democratization of data analysis, outlining how data science is used for probing reality, pattern discovery, predicting future events, and understanding complex systems.",
+  "prerequisites": [],
   "learning_outcomes": [
     "An understanding of the data operations",
     "An overview of simple statistical models and the basics of machine learning techniques of regression.",

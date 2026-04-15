@@ -1,0 +1,43 @@
+{
+  "title": "Think OS: A Brief Introduction to Operating Systems",
+  "author": "Allen B. Downey",
+  "publisher": "Green Tea Press",
+  "level": "undergraduate_introductory",
+  "target_audience": "Undergraduate computer science students taking a first course on operating systems, with prior programming experience in C or Python.",
+  "prerequisites_stated": [],
+  "prerequisites_inferred": [
+    "Working knowledge of the C programming language",
+    "Familiarity with basic data structures and pointers",
+    "Comfort with a Unix-like command line",
+    "Introductory computer architecture (what a CPU, register, and memory address are)"
+  ],
+  "learning_outcomes_stated": [],
+  "learning_outcomes_inferred": [
+    "Explain how compilation, linking, and loading turn source code into a running process",
+    "Describe the abstractions an operating system provides for processes, memory, and files",
+    "Reason about virtual memory, address translation, and paging",
+    "Understand caching, locality, and the memory hierarchy",
+    "Use and reason about concurrency primitives — threads, mutexes, condition variables, and semaphores",
+    "Analyze simple OS-level C programs that exercise these abstractions"
+  ],
+  "toc": [
+    { "chapter_number": "1",  "title": "Compilation",           "page_number": 1  },
+    { "chapter_number": "2",  "title": "Processes",             "page_number": 9  },
+    { "chapter_number": "3",  "title": "Virtual memory",        "page_number": 17 },
+    { "chapter_number": "4",  "title": "Files and file systems","page_number": 27 },
+    { "chapter_number": "5",  "title": "More file system",      "page_number": 37 },
+    { "chapter_number": "6",  "title": "Memory management",     "page_number": 45 },
+    { "chapter_number": "7",  "title": "Caching",               "page_number": 53 },
+    { "chapter_number": "8",  "title": "Multitasking",          "page_number": 63 },
+    { "chapter_number": "9",  "title": "Threads",               "page_number": 71 },
+    { "chapter_number": "10", "title": "Condition variables",   "page_number": 81 },
+    { "chapter_number": "11", "title": "Semaphores in C",       "page_number": 91 }
+  ],
+  "draft_notes": "Version 0.7.4 — incomplete draft. The preface notes the book is a work in progress; chapters may change before the 1.0 release.",
+  "source": "",
+  "subject": "Operating Systems",
+  "description": "A concise undergraduate introduction to operating systems concepts using C examples, covering processes, virtual memory, file systems, memory management, caching, and concurrency.",
+  "isbn": "",
+  "year": "2014",
+  "contributing_authors": []
+}

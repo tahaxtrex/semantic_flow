@@ -1,5 +1,81 @@
 # Architecture Decision Records (ADRs)
 
+## ADR-041: Top-Level-Only TOC Extraction
+
+**Date:** 2026-04-15
+**Status:** Accepted (Amends ADR-038)
+
+**Context:**
+`_extract_toc_heuristic()` was matching all lines in the TOC page with dotted leaders, including sub-section entries (`1.1 Compiled and interpreted languages … 1`, `1.2 Static types … 1`). For a book like Think OS (11 chapters, ~5 sub-sections each), this produced 55 entries in `toc_candidates`. The LLM metadata pipeline then returned those 55 entries as the TOC, which (a) corrupted the chapter-count reference used by Tier 1/2 validation and (b) would cause Tier 0 to attempt 55-chapter segmentation.
+
+**Decision:**
+Two-point fix, both mandatory:
+1. `_extract_toc_heuristic()` — skip any parsed entry whose `chapter_number` field contains a dot. Only plain integers (`1`, `11`), `Chapter N` strings, and roman numerals remain.
+2. `_METADATA_SYSTEM_PROMPT` rule 5 — explicitly instruct the LLM to include only top-level chapters and, if the TOC page shows only sub-sections, to infer chapter titles from the chapter headings found in the raw 15-page text body.
+
+**Consequences:**
+- The heuristic TOC is now empty for books whose printed TOC lists only sub-sections (the LLM becomes the sole chapter source, which is acceptable since it receives the raw text).
+- Returning zero entries is strictly better than returning 55 wrong entries; downstream code handles an empty `toc_candidates` gracefully.
+- Universal: the rule applies to all PDFs, not just Think OS.
+
+**Linked Requirements:** ADR-038, TASK-062
+
+---
+
+## ADR-042: Tier 0 — Metadata-TOC-Driven Segmentation
+
+**Date:** 2026-04-15
+**Status:** Accepted (Amends ADR-039)
+
+**Context:**
+The metadata TOC was being used only as a validation reference (chapter count ±2) to decide whether Tier 1/2 results were trustworthy. The actual page boundaries were computed by the PDF bookmark outline, UNIT markers, or font heuristics — none of which are guaranteed to be present or accurate. When the metadata pipeline already extracted the correct chapter titles, there was no reason not to use them as primary segmentation drivers.
+
+**Decision:**
+Add Tier 0 to `SmartSegmenter.segment()`, evaluated before Tier 1. Implementation:
+- `_extract_toc_metadata()`: iterates `course_metadata.toc` entries in order and calls `_find_chapter_start_page()` for each.
+- `_detect_contents_pages()`: identifies TOC/Contents pages (dotted-leader lines + "Contents" heading) in the first 20 physical pages and marks them as skip pages.
+- `_find_chapter_start_page()`: requires two conditions simultaneously — (1) at least 2 of the first 3 significant title words appear in the first 400 chars of the page, AND (2) the page opens with `chapter N …` or `N <word> …` (no leading page number). Condition 2 filters out running-header pages (`"74 Chapter 10. Condition variables 10.2…"`) which would otherwise be false positives.
+- Chapter pages are found sequentially; each subsequent chapter must start after the previous. Falls through if fewer than 2 chapters are resolved.
+- Output: `Frontmatter` block (pages before Chapter 1), one `Chapter N: Title` block per chapter, trailing pages (references, appendices) absorbed into the last chapter block and classified by segment type downstream.
+
+**Consequences:**
+- For PDFs where the metadata TOC is accurate and chapter headings are findable in the text, segmentation is structurally correct without needing bookmarks.
+- Does not rely on `page_number` values from the metadata TOC, which may be wrong (LLM extraction errors, roman-numeral front-matter offsets). Title+heading-pattern matching is more robust than page-number arithmetic.
+- If Tier 0 fails (metadata absent, or fewer than 2 chapters found), the existing Tier 1–3 cascade is unchanged.
+
+**Linked Requirements:** ADR-039, TASK-063
+
+---
+
+## ADR-043: Criteria-Based Scoring (5 × 0/1/2 per Rubric)
+
+**Date:** 2026-04-15
+**Status:** Accepted (Amends ADR-036)
+
+**Context:**
+Each rubric was scored as a single holistic integer (1–10). This made it impossible to identify which specific quality dimension caused a low score (e.g. "example present but uses placeholder data" vs "no example at all"). Rubric scores were also hard to calibrate consistently across LLM calls because the anchoring was purely band-based.
+
+**Decision:**
+Each rubric now has exactly 5 criteria (listed in `config/criterias.md` and `config/rubrics.yaml`). The LLM scores each criterion 0 (not present), 1 (partially present), or 2 (fully present). The rubric total = sum of the 5 criteria scores (range 0–10, replacing the old 1–10 scale).
+
+Implementation:
+- `config/rubrics.yaml`: `criteria:` list added to each rubric.
+- `_format_rubrics_for_prompt()`: renders criteria as `C1: … | → Total = C1+C2+C3+C4+C5`.
+- Module-gate scoring procedure: replaces the 3-step calibration with criteria-based instructions.
+- `_MODULE_EVAL_TOOL` + `_COURSE_EVAL_TOOL`: `criteria_scores` added as a required field (`{c1..c5}` per rubric); `scores` range updated to `0-10`.
+- `EvaluatedSegment.criteria_scores` and `CourseAssessment.criteria_scores`: new `Dict[str, Any]` fields, serialised automatically in the output JSON.
+- `_CRITERION_SCHEMA` defined at module level (Python 3 comprehensions inside class bodies cannot access other class attributes).
+
+**Consequences:**
+- Output JSON now shows per-criterion breakdowns alongside totals — callers can identify the exact failure mode without reading the rationale text.
+- The 0–10 range is preserved, so weights, aggregation, and downstream scoring logic are unchanged.
+- The 3-step calibration anchors are retained in the prompt as cross-check references; they no longer drive the primary scoring path.
+- Descriptions, weights, scoring guides, and evaluation questions in `rubrics.yaml` are unchanged.
+
+**Linked Requirements:** ADR-036, TASK-064, TASK-065
+
+---
+
 ## ADR-001: Deterministic Hybrid Segmentation Strategy
 
 **Date:** 2026-02-22
@@ -170,7 +246,7 @@ Option 2. `_extract_blocks_with_headers()` now calls `page.extract_words(extra_a
 ## ADR-009: Max-Characters Segment Cap (`max_chars`)
 
 **Date:** 2026-02-25
-**Status:** Accepted (Replaces Page-Count Cap)
+**Status:** Superseded by ADR-037 (2026-04-10)
 
 **Context:**
 Previously, ADR-009 mandated a hard cap of `page_count // 10`. This arbitrary heuristic forced completely unrelated chapters together if the document was short, destroying pedagogical contiguity.
@@ -230,7 +306,7 @@ API costs are reduced by ~80% per book. Cognitive load on the models is signific
 ## ADR-012: Bypassing Non-Instructional Content
 
 **Date:** 2026-02-25
-**Status:** Accepted
+**Status:** Accepted (Amended by ADR-040, 2026-04-10 — preface promoted to distinct type)
 
 **Context:**
 Table of Contents, Prefaces, and Exercises were being evaluated on rubrics like "Instructional Flow" and "Prerequisite Alignment." These sections naturally scored `1/10` or `2/10`, artificially crushing the textbook's overall average score.
@@ -429,7 +505,7 @@ Option 2. A `SCORING PROCEDURE` block was added to `_build_module_batch_prompts(
 ## ADR-022: Focused AI Extraction for Learning Outcomes & Prerequisites
 
 **Date:** 2026-03-06
-**Status:** Accepted
+**Status:** Superseded by ADR-038 (2026-04-10)
 
 **Context:**
 The regex-based extractor in `metadata.py` reliably finds fields like title and author but frequently misses `learning_outcomes` and `prerequisites`. These fields are critical for the Course Gate's `prerequisite_alignment` rubric yet are named inconsistently in PDFs ("Objectives", "Goals", "Must Knows", "What You Will Learn", etc.). This gap directly degrades evaluation accuracy (FR-001, Q-001).
@@ -454,7 +530,7 @@ Option 3. Add `_ai_extract_list_fields()` to `MetadataIngestor`, triggered autom
 ## ADR-023: TOC-Based Segmentation (Three-Tier Hierarchy)
 
 **Date:** 2026-03-06
-**Status:** Accepted
+**Status:** Accepted (Amended by ADR-039, 2026-04-10 — tier counts validated against metadata TOC)
 **Amends:** ADR-001 (adds a new first tier above the hybrid strategy)
 
 **Context:**
@@ -534,7 +610,7 @@ Added `_KNOWN_RUNNING_HEADERS` frozenset to `segmenter.py`. At the start of `_cl
 ## ADR-026: Glossary, Summary, and Assessment Segment Types
 
 **Date:** 2026-03-13
-**Status:** Accepted
+**Status:** Accepted (Amended by ADR-040, 2026-04-10 — prose-density gate on reference_table)
 **Amends:** ADR-012 (extends the non-instructional bypass list)
 **Addresses:** critic.v2.md Issue 2 (HIGH)
 
@@ -744,3 +820,208 @@ Segment 5 of the MRCET PDF (`"1. Built-in functions - Functions that are built i
 - 6+ pages of instructional content are no longer silently dropped.
 
 **Linked Requirements:** ADR-012, critic.v3.md Issues 3, 4
+
+---
+
+## ADR-035: UNIT Marker Scan Replaces Visual TOC Tier
+
+**Date:** 2026-03-25
+**Status:** Accepted
+**Amends:** ADR-029 (Visual TOC Parser)
+
+**Context:**
+ADR-029 introduced a visual TOC parser (Tier 2) that scanned pages 2–8 for printed table-of-contents lines matching `(UNIT|Chapter|Module|Part) <number> ... <page_num>`. This failed on MRCET-style PDFs where each unit has an explicit `UNIT I` / `UNIT – II` stamp on the first page of its section (spread throughout the document, not condensed on a TOC page). The result was fall-through to font-heuristics, producing 19 messy fragments instead of 5 clean unit segments.
+
+**Decision:**
+Replace `_extract_visual_toc()` with `_extract_unit_markers()`:
+- Scans **every page** (not just pages 2–8) for `UNIT\s*[-–]?\s*([IVX]+|\d+)` in the first 200 characters.
+- Converts Roman numerals to integers and deduplicates (first occurrence per unit number wins).
+- Validates monotonic page order; rejects if non-monotonic.
+- Extracts text for each unit range using the new shared `_extract_page_range_text()` helper.
+- Pages before the first UNIT marker are collected as a `Frontmatter` block.
+
+Add `_extract_page_range_text()` as a shared helper used by both Tier 1 (TOC) and Tier 2 (UNIT markers), eliminating ~100 lines of duplicate body-crop / table / code-marker logic.
+
+**Consequences:**
+- MRCET-style PDFs now produce 6 clean segments (Frontmatter + 5 Units) instead of 19 font-heuristic fragments.
+- Visual TOC scanner is removed; the `_VISUAL_TOC_LINE_RE` constant is no longer used.
+- PDFs without UNIT markers fall through to font-heuristics as before.
+
+**Linked Requirements:** ADR-001, ADR-029, critic.v3.md Issues 1, 2
+
+---
+
+## ADR-036: Rubric Evaluation Questions Schema & Grammar Check in text_readability
+
+**Date:** 2026-03-25
+**Status:** Accepted
+**Amends:** ADR-032 (Rubric Description Sharpening)
+
+**Context:**
+LLM rationales for Module Gate scores were inconsistent — the same evidence produced different scores across runs because the model lacked a structured checklist to work through. The `text_readability` rubric mentioned "grammatically correct" in passing but did not explicitly penalise grammar/spelling errors in its anchors or prompt.
+
+**Decision:**
+1. **`evaluation_questions` field (all 10 rubrics):** Add a YAML list of 4–5 evaluator questions per rubric. Questions are concrete, evidence-seeking, and binary (answerable ↑/↓). Example for `example_concreteness`: *"Do examples use realistic, domain-grounded data rather than trivial placeholders (a=5, x=[1,2,3])?"*
+2. **Grammar check in `text_readability`:** Updated description to explicitly include grammatical errors, spelling mistakes, and poorly constructed sentences as penalisable. Low-band anchor rewritten: *"frequent grammatical errors, typos, or ambiguous phrasing blocks comprehension"*.
+3. **`instructional_alignment` anti-inflation:** Added `WARNING — Anti-inflation rule` paragraph to description: topic-only coverage anchors at 6 (mid). Added `top: 9-10` band. Matches `business_relevance` treatment.
+4. **`_format_rubrics_for_prompt()` in `evaluator.py`:** Rubrics are no longer embedded as raw YAML. Each rubric renders as a structured prompt section: heading → description → scoring guide bullets → numbered evaluation checklist.
+5. **Module Gate `SCORING PROCEDURE`:** Step 1 renamed from "IDENTIFY" to "CHECKLIST" — instructs the LLM to work through the rubric's evaluation questions, mark ↑/↓ per question, then anchor to a band.
+
+**Consequences:**
+- Consistent, question-anchored rationales across all batches.
+- Grammar and spelling errors are now a named scoring factor, not an implicit consideration.
+- Rubric YAML is the single source of truth for both description and evaluation procedure.
+- Adding/editing a rubric question requires only editing `rubrics.yaml`; `evaluator.py` picks it up automatically.
+
+**Linked Requirements:** ADR-021, ADR-032, critic.v3.md Issues 6, 7, 11
+
+---
+
+## ADR-037: Soft Word-Count Segmentation Ceiling
+
+**Date:** 2026-04-10
+**Status:** Accepted
+**Supersedes:** ADR-009 (Max-Characters Segment Cap)
+
+**Context:**
+ADR-009 enforced a hard `max_chars = 8000` ceiling on every segment produced by `SmartSegmenter`. That ceiling was set when the target LLMs had ~16k-token context windows. Modern Claude Opus 4.6 and Gemini 2.5 Flash both accept 200k+ tokens and can score a full chapter as a single coherent pedagogical unit. Under the old cap, any chapter longer than ~1,500 words was split mid-content, corrupting the Module Gate signal — `instructional_flow` and `conceptual_continuity` cannot be scored on a fragment. The natural unit for Module Gate scoring is the chapter.
+
+**Options Considered:**
+1. *Keep the 8k character cap:* Safe but destroys the assessment signal on any non-trivial chapter.
+2. *Remove all ceilings:* Simple but leaks a pathological 40k-word "everything" chapter straight into the LLM prompt with no safety net.
+3. *Soft word-count ceiling, only triggered on oversized segments:* Chapters flow through untouched; pathological megachapters still get safely chunked at paragraph boundaries.
+
+**Decision:**
+- Replace `max_chars` with `max_words` as a *soft* guidance ceiling, default **30,000 words** (≈40,000 tokens — a conservative proxy well under the 200k context limit).
+- A single chapter/segment is *never* split unless it exceeds `max_words`.
+- `_merge_short_blocks` still runs — natural chapter boundaries are preserved and short adjacent sections can combine up to the soft ceiling.
+- `_chunk_text()` only triggers on segments exceeding `max_words`.
+- `max_chars` remains as an accepted kwarg for backwards compat but is coerced to a word-count internally (approximation: 5 chars/word) and a deprecation warning is logged.
+
+**Consequences:**
+- Typical 2k–5k-word chapters pass through as one segment — Module Gate scores reflect the pedagogical arc of the chapter, not arbitrary fragments.
+- Rare megachapters are still safely chunked via the existing paragraph → sentence → word fallback.
+- Backwards compatible for any external caller still passing `max_chars`.
+
+**Linked Requirements:** FR-003, FR-004
+
+---
+
+## ADR-038: Two-Phase Heuristic+LLM Metadata Pipeline
+
+**Date:** 2026-04-10
+**Status:** Accepted
+**Supersedes:** ADR-022 (Focused AI Extraction for Learning Outcomes & Prerequisites)
+
+**Context:**
+The regex + targeted-AI approach from ADR-022 has three failure modes that directly corrupt Course Gate scoring:
+
+1. **Prose-embedded outcomes are missed.** Many textbooks (e.g. Think OS, SICP, many undergraduate introductions) state their learning goals and prerequisites inside a preface paragraph rather than under a labeled "Learning Objectives" bullet list. `_ai_extract_list_fields()` expects heading synonyms and reliably returns `learning_outcomes = []` for these books.
+2. **Author/publisher are occasionally pulled from body text.** The regex pass is not strictly scoped to the first 3 pages in all code paths; a "By Charles Darwin" sentence in a chapter body can pollute the author field.
+3. **No TOC parser.** Segmentation tiers (ADR-023) currently have no reference chapter count to validate against, so a spuriously over-segmented or under-segmented PDF is accepted silently.
+
+Additionally, the current schema does not distinguish *stated* (explicitly labeled) from *inferred* (read from prose) learning outcomes and prerequisites, so the Course Gate cannot weight explicit vs. implicit pedagogical structure.
+
+**Options Considered:**
+1. *Keep ADR-022's two-call approach (full pass + focused list-fields pass):* Doesn't solve prose-embedded outcomes; two calls per PDF; no TOC.
+2. *LLM-only, single call, no heuristics:* Loses the font-heuristic title and the cover-only author scoping — reintroduces hallucination risk for author/publisher.
+3. *Heuristic phase (no LLM) + single LLM enrichment call with strict JSON schema + validator:* Deterministic parts stay deterministic; LLM is scoped to fields that genuinely need it; structural constraints (cover-only author, word-count validator) make corruption impossible.
+
+**Decision:**
+Option 3. The metadata pipeline becomes two explicit phases plus a validator:
+
+1. **Heuristic phase** (no LLM) — `_extract_heuristic_metadata(pdf_path)` returns an intermediate dict:
+   - `raw_text_15`: full text of first 15 pages (for the LLM)
+   - `cover_text`: first 3 pages only (for author/publisher extraction)
+   - `title`: via existing `_extract_title_by_font()` scoped to cover pages
+   - `author_candidate` / `publisher_candidate`: via `_AUTHOR_PATTERNS` / `_PUBLISHER_PATTERNS` matched *only* against `cover_text`
+   - `toc_candidates`: new `_extract_toc_heuristic()` — detects dotted leaders, indented hierarchies, and page-number patterns; produces `List[{chapter_number, title, page_number}]`
+2. **LLM enrichment phase** — a single focused call returning strict JSON matching the new `CourseMetadata` schema:
+   - `title`, `author`, `publisher`
+   - `level` ∈ `{introductory, intermediate, advanced, undergraduate_introductory, undergraduate_advanced, graduate}`
+   - `target_audience` (string)
+   - `prerequisites_stated: List[str]` / `prerequisites_inferred: List[str]`
+   - `learning_outcomes_stated: List[str]` / `learning_outcomes_inferred: List[str]`
+   - `toc: List[TOCEntry]`
+   - `draft_notes: str`
+   Prompt rules (enforced via system prompt):
+   - "If unsure, return empty string or empty list. Never invent content."
+   - "Author and publisher must appear in the cover text block. Do not extract them from the raw 15-page text."
+   - "`_stated` fields mean explicitly labeled (e.g. section titled 'Learning Objectives'); `_inferred` fields mean implied by preface/introduction prose."
+   Provider policy: **Gemini 2.5 Flash primary, Claude Sonnet 4.6 fallback** (per Q-029). Uses `response_mime_type="application/json"` + Pydantic `response_schema` on Gemini, and strict JSON system prompt on Claude.
+3. **Validation + merge phase** — `CourseMetadata` Pydantic v2 model enforces:
+   - `level` field validator coerces invalid values to `""`.
+   - `author` / `publisher` field validators coerce values with more than 6 words to `""` (structural defense against body-text corruption).
+   - `_merge_heuristic_and_llm(heuristic, llm_meta)` fills any still-empty field with the heuristic candidate.
+
+**Consequences:**
+- Exactly one LLM call per PDF (down from up to two under ADR-022).
+- Author/publisher corruption from body text is structurally impossible — the prompt scopes to `cover_text`, the validator caps word count at 6, and the heuristic fallback also uses cover-only extraction.
+- Downstream consumers now see both *stated* and *inferred* lists. Course Gate can weigh explicit vs. implicit pedagogical structure.
+- Legacy `prerequisites` / `learning_outcomes` fields on `CourseMetadata` are **deleted outright** (Q-030). One-pass migration of `evaluator.py`, `exporter.py`, `main.py`, and tests.
+- `AIMetadataExtractor` is refactored in-place to issue the new single-call schema; `_ai_extract_list_fields()`, `_LIST_FIELDS_SYSTEM_PROMPT`, and the legacy two-call path are deleted.
+- A calibration reference `examples/metadata_reference_thinkos.json` (Think OS v0.7.4 by Allen B. Downey) anchors "correctly extracted metadata" for future prompt tuning.
+
+**Linked Requirements:** FR-001, FR-002, Q-029, Q-030
+
+---
+
+## ADR-039: TOC-Validated Segmentation Count
+
+**Date:** 2026-04-10
+**Status:** Accepted
+**Amends:** ADR-023 (Three-Tier TOC Hierarchy)
+
+**Context:**
+ADR-023 established the three-tier segmentation fallback (PDF bookmark outline → UNIT marker scan → font-heuristic). Each tier silently accepts whatever count it produces. In practice we see two failure modes:
+
+1. **Spurious matches.** The UNIT scan occasionally fires on a section heading that happens to contain the word "UNIT" in the body, producing 14 blocks on a 10-chapter book.
+2. **Missed matches.** A PDF outline with nested sub-chapters can produce 3 top-level blocks on a 10-chapter book if `_flatten_outline()` is confused by the hierarchy.
+
+Either way, the pipeline runs to completion with bad segmentation and the user has no signal that anything went wrong. With ADR-038 now producing a reliable parsed TOC in metadata, we finally have a ground-truth chapter count we can validate against.
+
+**Decision:**
+- `SmartSegmenter.__init__` gains an optional `course_metadata: Optional[CourseMetadata] = None` parameter.
+- `segment()` reads `course_metadata.toc` (if non-empty) as a **reference chapter count** `toc_chapter_count`.
+- After Tier 1 or Tier 2 produces its block list, count top-level chapters. If `abs(detected_count - toc_chapter_count) <= 2`, accept. Otherwise, log a WARNING and fall through to the next tier.
+- Tier 3 (font-heuristic) always logs its result compared to `toc_chapter_count` but does not fall through further (it is the last tier — the user is informed but the pipeline continues).
+- If `course_metadata` is `None` or `toc` is empty, behavior is unchanged (backwards compatible).
+- A ±2 tolerance accounts for legitimate front-matter / back-matter that may or may not appear in the TOC (preface, appendix, index).
+
+**Consequences:**
+- Silent mis-segmentations on well-structured PDFs are now surfaced as warnings.
+- `src/main.py` must pass the `CourseMetadata` it already extracts into `SmartSegmenter(...)` (one-line wiring change).
+- Zero impact on PDFs without a parseable TOC.
+
+**Linked Requirements:** FR-003, ADR-023, ADR-038
+
+---
+
+## ADR-040: Preface as Distinct Segment + Prose-Density Reference-Table Check
+
+**Date:** 2026-04-10
+**Status:** Accepted
+**Amends:** ADR-012 (Non-Instructional Bypass), ADR-026 (Glossary/Summary/Assessment types)
+
+**Context:**
+Two `_classify_segment()` bugs surfaced during Course Gate calibration:
+
+1. **Preface loses signal.** `_FRONTMATTER_PATTERNS` currently maps `preface` / `foreword` / `introduction-before-ch1` → `frontmatter`, which is bypassed entirely. But Course Gate's `structural_usability` and `prerequisite_alignment` need access to the preface — it is where a textbook states its goals, its audience, and its assumed prerequisites in prose. Collapsing it into `frontmatter` (alongside the copyright page) destroys that signal.
+2. **Reference-table over-tagging.** The `reference_table` heuristic fires on `text.count("[TABLE:") >= 4` with no prose-density check. A prose-heavy instructional chapter on (say) SQL, which legitimately contains 5 syntax tables, gets misclassified as a reference table and silently bypassed by the Module Gate — its rubrics never get scored.
+
+**Decision:**
+1. **New segment type: `preface`.**
+   - Classification rule: heading matches `^(preface|foreword|introduction|about\s+this\s+book)\b` (case-insensitive) AND the segment's page position is before the first detected chapter (tracked via the active TOC/UNIT output or `course_metadata.toc`).
+   - `evaluator.py` routes `preface` segments into **Course Gate context** (fed to `structural_usability` and `prerequisite_alignment`), but assigns them a zero Module Gate score (they are not scored on `instructional_flow` etc.).
+   - `EvaluatedSegment` docstring in `models.py` updated to list `preface` in the allowed `segment_type` values.
+2. **Prose-density check on `reference_table`.**
+   - New helper `_compute_prose_density(text: str) -> float` — strips `[TABLE:…]` annotations, `[CODE]...[/CODE]` regions, and bullet/numbered-list lines, then computes `prose_chars / len(text)`.
+   - In `_classify_segment()`, the `reference_table` check now runs only when `prose_density <= 0.60`. Above that threshold the segment is classified as `instructional` regardless of table marker count.
+
+**Consequences:**
+- `preface` segments appear in the output JSON as a clearly-labeled type, improving audit clarity and giving Course Gate rubrics a cleaner evidence source.
+- Prose-heavy chapters containing reference tables are no longer silently bypassed — Module Gate scores them as instructional content.
+- One new branch in `evaluator.py`'s `classify_segment_for_gate()` logic: `preface` → Course Gate context.
+- Zero API cost impact (the preface was already being read into the pipeline — it is just routed differently now).
+
+**Linked Requirements:** ADR-012, ADR-026

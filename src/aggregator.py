@@ -4,6 +4,7 @@ from typing import List, Dict, Optional
 from src.models import (
     CourseMetadata, EvaluatedSegment, CourseAssessment, CourseEvaluation,
     AssessmentTree, GateReport, RubricResult,
+    ModuleScores, CourseScores,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,20 +19,10 @@ class ScoreAggregator:
     Also builds the ADR-024 AssessmentTree for the structured output.
     """
 
-    # Module Gate dimensions — must match ModuleScores fields in models.py
-    # ADR-028: instructional_alignment moved to Course Gate
-    _MODULE_DIMENSIONS = [
-        "goal_focus", "text_readability", "pedagogical_clarity",
-        "example_concreteness", "example_coherence",
-    ]
-
-    # Course Gate dimensions — must match CourseScores fields in models.py
-    # ADR-028: instructional_alignment added from Module Gate
-    _COURSE_DIMENSIONS = [
-        "prerequisite_alignment", "structural_usability",
-        "business_relevance", "fluidity_continuity",
-        "instructional_alignment",
-    ]
+    # Module/Course Gate dimensions derived from Pydantic models — single source of truth.
+    # ADR-028: instructional_alignment lives in CourseScores (moved from Module Gate).
+    _MODULE_DIMENSIONS = list(ModuleScores.model_fields.keys())
+    _COURSE_DIMENSIONS = list(CourseScores.model_fields.keys())
 
     def aggregate(
         self,
@@ -155,16 +146,38 @@ class ScoreAggregator:
 
         for dim in self._MODULE_DIMENSIONS:
             score = module_overall.get(dim, 0.0)
-            best_rationale = ""
             rationale_key = f"{dim}_rationale"
+
+            # Collect (dim_score, rationale) from all instructional segments
+            candidates = []
             for seg in instructional_segments:
                 reasoning = getattr(seg, 'reasoning', None)
                 if reasoning is None:
                     continue
                 r = getattr(reasoning, rationale_key, "") or ""
-                if isinstance(r, str) and len(r) > len(best_rationale):
-                    best_rationale = r
-            module_rubrics[dim] = RubricResult(score=score, rationale=best_rationale)
+                seg_score = getattr(seg.scores, dim, 0) if hasattr(seg, 'scores') else 0
+                if r:
+                    candidates.append((seg_score, r))
+
+            if not candidates:
+                module_rubrics[dim] = RubricResult(score=score, rationale="")
+                continue
+
+            candidates.sort(key=lambda x: x[0])
+            n = len(candidates)
+            score_range = f"{candidates[0][0]}–{candidates[-1][0]}"
+
+            lowest_r = candidates[0][1][:220]
+            highest_r = candidates[-1][1][:220]
+            median_r = candidates[n // 2][1][:150] if n > 2 else ""
+
+            parts = [f"Across {n} segment(s) (scores {score_range}/10):"]
+            parts.append(f"Weakest: {lowest_r}")
+            if median_r:
+                parts.append(f"Typical: {median_r}")
+            parts.append(f"Strongest: {highest_r}")
+
+            module_rubrics[dim] = RubricResult(score=score, rationale=" | ".join(parts))
 
         module_gate_report = GateReport(
             overall_score=module_gate_score,

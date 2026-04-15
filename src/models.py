@@ -10,7 +10,11 @@ class Segment(BaseModel):
     segment_id: int
     heading: Optional[str] = None
     text: str
-    # Values: "instructional" | "exercise" | "solution" | "reference_table"
+    # Values: "instructional" | "preface" | "exercise" | "solution" |
+    #         "reference_table" | "frontmatter" | "glossary" | "summary" |
+    #         "assessment"
+    # "preface" is routed to Course Gate context (ADR-040); all others except
+    # "instructional" receive zero Module Gate scores and are bypassed.
     segment_type: str = "instructional"
 
 
@@ -36,6 +40,8 @@ class ModuleReasoning(BaseModel):
 class EvaluatedSegment(Segment):
     scores: ModuleScores
     reasoning: ModuleReasoning
+    # Per-criterion breakdown: {"goal_focus": {"c1": 2, "c2": 1, ...}, ...}
+    criteria_scores: Dict[str, Any] = Field(default_factory=dict)
     # 1-2 sentence summary of this segment, used as input to the Course Gate.
     summary: str = ""
     incomplete: bool = False
@@ -63,6 +69,8 @@ class CourseReasoning(BaseModel):
 class CourseAssessment(BaseModel):
     scores: CourseScores
     reasoning: CourseReasoning
+    # Per-criterion breakdown: {"prerequisite_alignment": {"c1": 2, ...}, ...}
+    criteria_scores: Dict[str, Any] = Field(default_factory=dict)
     overall_score: float
 
 

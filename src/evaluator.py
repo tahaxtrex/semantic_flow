@@ -21,6 +21,14 @@ from src.models import (
 
 logger = logging.getLogger(__name__)
 
+# Schema for a single rubric's 5 criteria scores (each 0/1/2).
+# Defined at module level so it is accessible from class-body dict comprehensions.
+_CRITERION_SCHEMA = {
+    "type": "object",
+    "properties": {f"c{i}": {"type": "integer", "minimum": 0, "maximum": 2} for i in range(1, 6)},
+    "required": [f"c{i}" for i in range(1, 6)],
+}
+
 # Per-batch retry budget for the selected model.
 MAX_RETRIES_PER_BATCH = 3
 RETRY_BACKOFF_SECONDS = 5  # doubles each attempt: 5s → 10s → 20s
@@ -69,12 +77,65 @@ class LLMEvaluator:
             raise ValueError(f"Unsupported model requested: {self.preferred_model}")
 
     def _load_rubrics(self) -> Tuple[str, str]:
-        """Load and return (module_rubrics_yaml, course_rubrics_yaml) as YAML strings."""
+        """Load rubrics from YAML and store parsed objects + formatted prompt strings."""
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        module_yaml = yaml.dump({"module_rubrics": data["module_rubrics"]}, sort_keys=False)
-        course_yaml = yaml.dump({"course_rubrics": data["course_rubrics"]}, sort_keys=False)
-        return module_yaml, course_yaml
+        self._module_rubrics_data = data.get("module_rubrics", [])
+        self._course_rubrics_data = data.get("course_rubrics", [])
+        module_prompt = self._format_rubrics_for_prompt(self._module_rubrics_data)
+        course_prompt = self._format_rubrics_for_prompt(self._course_rubrics_data)
+        return module_prompt, course_prompt
+
+    @staticmethod
+    def _format_rubrics_for_prompt(rubrics: list) -> str:
+        """Render rubric list into a structured prompt block.
+
+        Format per rubric:
+          ### {name} (`{id}`) — weight {weight}
+          {description}
+
+          Scoring guide:
+            • low:  ...
+            • mid:  ...
+            • high: ...
+
+          Evaluation checklist — answer each before scoring:
+            1. Question one?
+            2. Question two?
+        """
+        lines = []
+        for r in rubrics:
+            rid   = r.get("id", "?")
+            name  = r.get("name", rid)
+            desc  = (r.get("description") or "").strip()
+            w     = r.get("weight", 1.0)
+            guide = r.get("scoring_guide", {})
+            qs    = r.get("evaluation_questions", [])
+
+            lines.append(f"### {name} (`{rid}`) — weight {w}")
+            if desc:
+                lines.append(desc)
+
+            criteria = r.get("criteria", [])
+            if criteria:
+                lines.append("\nCriteria (score each: 0 = not present, 1 = partially present, 2 = fully present):")
+                for i, c in enumerate(criteria, 1):
+                    lines.append(f"  C{i}: {c}")
+                lines.append("  → Total = C1+C2+C3+C4+C5  (range 0–10)")
+
+            if guide:
+                lines.append("\nScoring guide:")
+                for band, text in guide.items():
+                    lines.append(f"  • {band}: {text}")
+
+            if qs:
+                lines.append("\nEvaluation checklist — answer each before scoring:")
+                for i, q in enumerate(qs, 1):
+                    lines.append(f"  {i}. {q}")
+
+            lines.append("")  # blank line between rubrics
+
+        return "\n".join(lines).strip()
 
     # -------------------------------------------------------------------------
     # SHARED UTILITIES
@@ -192,13 +253,12 @@ class LLMEvaluator:
         raise ValueError(f"Cannot unwrap Gemini object response. Got type={type(raw).__name__}: {str(raw)[:200]}")
 
     # -------------------------------------------------------------------------
-    # MODULE GATE — Field Definitions
+    # MODULE GATE — Field Definitions (derived from models to avoid duplication)
     # -------------------------------------------------------------------------
 
-    _MODULE_SCORE_FIELDS = [
-        "goal_focus", "text_readability", "pedagogical_clarity",
-        "example_concreteness", "example_coherence",
-    ]
+    # Single source of truth: ModuleScores / CourseScores in models.py.
+    # Adding a field there automatically updates these lists and the tool schemas.
+    _MODULE_SCORE_FIELDS = list(ModuleScores.model_fields.keys())
     _MODULE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _MODULE_SCORE_FIELDS]
 
     _MODULE_EVAL_TOOL = {
@@ -219,7 +279,14 @@ class LLMEvaluator:
                             },
                             "scores": {
                                 "type": "object",
-                                "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _MODULE_SCORE_FIELDS},
+                                "description": "Total score per rubric (0-10), must equal the sum of its 5 criteria scores.",
+                                "properties": {f: {"type": "integer", "minimum": 0, "maximum": 10} for f in _MODULE_SCORE_FIELDS},
+                                "required": _MODULE_SCORE_FIELDS,
+                            },
+                            "criteria_scores": {
+                                "type": "object",
+                                "description": "Per-criterion breakdown for each rubric. Each criterion scored 0/1/2.",
+                                "properties": {f: _CRITERION_SCHEMA for f in _MODULE_SCORE_FIELDS},
                                 "required": _MODULE_SCORE_FIELDS,
                             },
                             "reasoning": {
@@ -228,7 +295,7 @@ class LLMEvaluator:
                                 "required": _MODULE_RATIONALE_FIELDS,
                             },
                         },
-                        "required": ["segment_id", "summary", "scores", "reasoning"],
+                        "required": ["segment_id", "summary", "scores", "criteria_scores", "reasoning"],
                     },
                 }
             },
@@ -264,31 +331,53 @@ You are an expert pedagogical evaluator. Evaluate the provided course segments b
 COURSE CONTEXT (for reference only — do not score course-level structure here):
 Title: {metadata.title}
 Target Audience: {metadata.target_audience}
-Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
+Learning Outcomes: {', '.join((metadata.learning_outcomes_stated or []) + (metadata.learning_outcomes_inferred or [])) or 'None specified'}
 
 MODULE RUBRICS (score each segment on ONLY these 5 dimensions):
 {self.module_rubrics_yaml}
 
-SCORING PROCEDURE — Three-Step Calibration (apply for every rubric, every segment):
-For each rubric dimension, follow these three steps IN ORDER before committing a score:
+SCORING PROCEDURE — Criteria-Based Scoring (apply for every rubric, every segment):
 
-  Step 1 — IDENTIFY: Find 2-3 specific evidence pieces from the segment text relevant to this rubric.
-           Quote short phrases. If no evidence exists, the score must be in band 1-3.
+Each rubric above lists exactly 5 criteria (C1–C5). For every rubric, score each criterion:
+  0 = not present in this segment
+  1 = partially present
+  2 = fully present
 
-  Step 2 — ANCHOR to one of these bands based on evidence quality:
-           1-3 (Poor):      Missing, wrong, or fundamentally inadequate
-           4-6 (Adequate):  Present but generic, trivial, or incomplete
-           7-8 (Good):      Solid, well-crafted, clearly effective
-           9-10 (Excellent): Exceptional, publishable quality, best-in-class
+The rubric's total score = C1 + C2 + C3 + C4 + C5  (range 0–10).
 
-  Step 3 — DIFFERENTIATE within the band. Pick the specific integer.
-           A score of 7 vs 8 must be justified by a concrete quality difference.
+You MUST return:
+  • "criteria_scores": per-rubric object with keys c1–c5 (each 0, 1, or 2)
+  • "scores": the computed sum for each rubric (must equal the sum of its criteria)
 
-CALIBRATION ANCHORS (mandatory reference points):
-  - example_concreteness: Trivial variables (a=5, x=[1,2,3], "hello world") → max 6.
-    Realistic scenarios (student records, data processing) → 7+.
-  - goal_focus: Content that digresses into unrelated topics → max 5.
-  - text_readability: Dense walls of code with no explanatory prose → max 5.
+Use the scoring guides and calibration anchors below to cross-check your totals —
+if the computed sum conflicts with the band anchors, revisit your criteria scores.
+
+CALIBRATION ANCHORS — scores MUST match these exemplars. If in doubt, score lower, not higher.
+
+  goal_focus:
+    3 — Long tangents into unrelated material; the segment's stated topic is buried or absent
+    5 — Core topic present but padded with loosely related digressions (history, side-notes)
+    8 — Stays on-topic throughout; every paragraph directly serves the stated learning goal
+
+  text_readability:
+    3 — Walls of code or dense paragraphs; frequent grammatical errors, typos, or ambiguous phrasing blocks comprehension
+    5 — Readable overall but has run-on sentences, unexplained acronyms, or occasional grammar/spelling issues
+    8 — Clear, well-paced, grammatically correct prose; every code block preceded or followed by plain-language explanation
+
+  pedagogical_clarity:
+    3 — New jargon introduced without any definition; inconsistent or contradictory terminology
+    5 — Most terms eventually defined, but some are used pages before their introduction
+    8 — Every new term defined on first use; notation is consistent from start to finish
+
+  example_concreteness:
+    3 — No examples at all, or purely abstract placeholders (a=1, foo, bar, x=0)
+    5 — Trivial academic data only: a=5, x=[1,2,3], "hello world", print(42), dummy variables
+    8 — Realistic, domain-grounded scenarios: student records, inventory system, sales data, employee payroll
+
+  example_coherence:
+    3 — Completely disconnected examples; each sub-section invents an unrelated new scenario
+    5 — Examples are loosely themed but don't build on each other; narrative resets between topics
+    8 — Examples share a consistent domain or running scenario that accumulates across the segment
 {cross_segment_ctx}
 
 EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
@@ -345,6 +434,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
             try:
                 scores = ModuleScores(**item.get("scores", {}))
                 reasoning = ModuleReasoning(**item.get("reasoning", {}))
+                criteria_scores = item.get("criteria_scores", {})
                 summary = item.get("summary", "")
                 incomplete = False
             except (ValidationError, Exception) as e:
@@ -354,6 +444,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                     example_concreteness=0, example_coherence=0,
                 )
                 reasoning = ModuleReasoning()
+                criteria_scores = {}
                 summary = ""
                 incomplete = True
 
@@ -363,6 +454,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                 text=segment.text,
                 segment_type=segment.segment_type,
                 scores=scores,
+                criteria_scores=criteria_scores,
                 reasoning=reasoning,
                 summary=summary,
                 incomplete=incomplete,
@@ -469,14 +561,10 @@ This summary will be used as context in a subsequent holistic course-level evalu
         return sorted(results, key=lambda x: x.segment_id)
 
     # -------------------------------------------------------------------------
-    # COURSE GATE — Field Definitions
+    # COURSE GATE — Field Definitions (derived from models to avoid duplication)
     # -------------------------------------------------------------------------
 
-    _COURSE_SCORE_FIELDS = [
-        "prerequisite_alignment", "structural_usability",
-        "business_relevance", "fluidity_continuity",
-        "instructional_alignment",  # ADR-016: moved from Module Gate
-    ]
+    _COURSE_SCORE_FIELDS = list(CourseScores.model_fields.keys())  # ADR-016: includes instructional_alignment
     _COURSE_RATIONALE_FIELDS = [f"{f}_rationale" for f in _COURSE_SCORE_FIELDS]
 
     _COURSE_EVAL_TOOL = {
@@ -487,7 +575,14 @@ This summary will be used as context in a subsequent holistic course-level evalu
             "properties": {
                 "scores": {
                     "type": "object",
-                    "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _COURSE_SCORE_FIELDS},
+                    "description": "Total score per rubric (0-10), must equal the sum of its 5 criteria scores.",
+                    "properties": {f: {"type": "integer", "minimum": 0, "maximum": 10} for f in _COURSE_SCORE_FIELDS},
+                    "required": _COURSE_SCORE_FIELDS,
+                },
+                "criteria_scores": {
+                    "type": "object",
+                    "description": "Per-criterion breakdown for each course rubric. Each criterion scored 0/1/2.",
+                    "properties": {f: _CRITERION_SCHEMA for f in _COURSE_SCORE_FIELDS},
                     "required": _COURSE_SCORE_FIELDS,
                 },
                 "reasoning": {
@@ -496,7 +591,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                     "required": _COURSE_RATIONALE_FIELDS,
                 },
             },
-            "required": ["scores", "reasoning"],
+            "required": ["scores", "criteria_scores", "reasoning"],
         },
     }
 
@@ -531,12 +626,18 @@ Title: {metadata.title}
 Author: {metadata.author or 'Unknown'}
 Target Audience: {metadata.target_audience}
 Level: {metadata.level or 'Not specified'}
-Prerequisites: {', '.join(metadata.prerequisites) if metadata.prerequisites else 'None specified'}
-Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
+Prerequisites: {', '.join((metadata.prerequisites_stated or []) + (metadata.prerequisites_inferred or [])) or 'None specified'}
+Learning Outcomes: {', '.join((metadata.learning_outcomes_stated or []) + (metadata.learning_outcomes_inferred or [])) or 'None specified'}
 Description: {metadata.description or 'Not provided'}
 
 COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
 {self.course_rubrics_yaml}
+
+SCORING PROCEDURE — Criteria-Based Scoring:
+Each rubric above lists exactly 5 criteria (C1–C5). Score each criterion:
+  0 = not present  |  1 = partially present  |  2 = fully present
+Total score for the rubric = C1+C2+C3+C4+C5 (range 0–10).
+Return both "criteria_scores" (c1–c5 per rubric) and "scores" (the computed sums).
 """
 
         user_prompt = ""
@@ -584,6 +685,37 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
                 user_prompt += f"\n## MODULE GATE QUALITY SUMMARY\n"
                 user_prompt += f"- Average Module Gate score across {len(all_scores)} segments: {overall_avg:.1f}/10\n"
                 user_prompt += f"- Lowest-scoring segment: ID {lowest[0]} ({lowest[1] or 'untitled'}) — avg {lowest[2]:.1f}\n"
+
+                # Pass weakest segment's actual text and per-dimension rationales so the
+                # Course Gate can reason about evidence quality, not just numeric scores.
+                lowest_seg = next(
+                    (s for s in instructional_with_summary if s.segment_id == lowest[0]), None
+                )
+                if lowest_seg:
+                    user_prompt += (
+                        f"- Weakest segment text sample:\n"
+                        f"  {lowest_seg.text[:600].strip()}\n"
+                    )
+                    reasoning = getattr(lowest_seg, 'reasoning', None)
+                    if reasoning:
+                        reasoning_dict = (
+                            reasoning.model_dump() if hasattr(reasoning, 'model_dump') else {}
+                        )
+                        rationale_lines = []
+                        for dim in self._MODULE_SCORE_FIELDS:
+                            r = reasoning_dict.get(f'{dim}_rationale', '') or ''
+                            if r:
+                                rationale_lines.append(f"  {dim}: {r[:200]}")
+                        if rationale_lines:
+                            user_prompt += "- Weakest segment per-dimension rationales:\n"
+                            user_prompt += "\n".join(rationale_lines) + "\n"
+
+                # Top 3 strongest segments as contrast
+                top3 = sorted(all_scores, key=lambda s: s[2], reverse=True)[:3]
+                user_prompt += "- Top 3 strongest segments:\n"
+                for seg_id, heading, avg, _ in top3:
+                    user_prompt += f"  ID {seg_id} ({heading or 'untitled'}): avg {avg:.1f}\n"
+
                 # Detect repetition: segments with very similar summaries
                 summaries_text = [s.summary.lower() for s in instructional_with_summary if s.summary]
                 repeated_topics = []
@@ -670,9 +802,10 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
         data = tool_block.input
         scores = CourseScores(**data["scores"])
         reasoning = CourseReasoning(**data["reasoning"])
+        criteria_scores = data.get("criteria_scores", {})
         score_values = [v for v in data["scores"].values() if isinstance(v, (int, float))]
         overall = round(sum(score_values) / len(score_values), 2) if score_values else 0.0
-        return CourseAssessment(scores=scores, reasoning=reasoning, overall_score=overall)
+        return CourseAssessment(scores=scores, reasoning=reasoning, criteria_scores=criteria_scores, overall_score=overall)
 
     def _call_gemini_course(self, system_prompt: str, user_prompt: str) -> CourseAssessment:
         logger.info("[Course Gate] Running capstone course evaluation via Gemini")
@@ -694,9 +827,10 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
             raise
         scores = CourseScores(**data["scores"])
         reasoning = CourseReasoning(**data.get("reasoning", {}))
+        criteria_scores = data.get("criteria_scores", {})
         score_values = [v for v in data["scores"].values() if isinstance(v, (int, float))]
         overall = round(sum(score_values) / len(score_values), 2) if score_values else 0.0
-        return CourseAssessment(scores=scores, reasoning=reasoning, overall_score=overall)
+        return CourseAssessment(scores=scores, reasoning=reasoning, criteria_scores=criteria_scores, overall_score=overall)
 
     def evaluate_course(
         self,

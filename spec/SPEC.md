@@ -65,10 +65,10 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 ```
 
 ### 5.2 Component Breakdown
-1. **CLI Orchestrator (`main.py`):** Validates arguments (e.g. `--input`, `--output`, `--config`), sets up logging, and drives the pipeline.
-2. **Metadata Ingestor (`metadata.py`):** Encapsulates the logic to read external files or parse them out of the PDF.
-3. **Smart Segmenter (`segmenter.py`):** Utilizes `pdfplumber` to extract structured text. 
-4. **LLM Evaluator (`evaluator.py`):** Handles Prompt construction based on `config/rubrics.yaml`, executes async or sync API calls, enforces JSON schema returned from the LLM.
+1. **CLI Orchestrator (`main.py`):** Validates arguments (e.g. `--input`, `--output`, `--config`), sets up logging, drives the pipeline, and **passes the extracted `CourseMetadata` into `SmartSegmenter`** so the segmenter can validate its detected chapter count against the metadata TOC (ADR-039).
+2. **Metadata Ingestor (`metadata.py`):** Two-phase pipeline (ADR-038). **Heuristic phase** (no LLM): first 15 pages via pdfplumber; author/publisher candidates and font-heuristic title scoped strictly to the first 3 cover pages; `_extract_toc_heuristic()` parses dotted-leader / indented-hierarchy TOC entries. **LLM enrichment phase**: a single focused call (Gemini primary, Claude fallback) returning strict JSON with `title`, `author`, `publisher`, `level` (enum), `target_audience`, `prerequisites_stated`, `prerequisites_inferred`, `learning_outcomes_stated`, `learning_outcomes_inferred`, `toc`, `draft_notes`. Pydantic `field_validator`s enforce the `level` enum and coerce author/publisher values longer than 6 words to `""`.
+3. **Smart Segmenter (`segmenter.py`):** Utilizes `pdfplumber` to extract structured text. Accepts optional `course_metadata` (ADR-039) — when present, Tier 1 (bookmark outline) and Tier 2 (UNIT markers) chapter counts are validated against `len(metadata.toc) ± 2` with fall-through on mismatch. A soft `max_words = 30000` ceiling (ADR-037) replaces the old `max_chars` cap: single chapters pass through untouched; only pathological megachapters are chunked. `_classify_segment()` promotes `preface` to a distinct segment type and gates `reference_table` on a 60% prose-density threshold (ADR-040).
+4. **LLM Evaluator (`evaluator.py`):** Handles Prompt construction based on `config/rubrics.yaml`, executes async or sync API calls, enforces JSON schema returned from the LLM. Routes `preface` segments into Course Gate context (`structural_usability`, `prerequisite_alignment`) with zero Module Gate score (ADR-040).
 5. **Aggregator (`aggregator.py`):** Calculates course-level score averages and serializes the complete document to JSON.
 
 ### 5.3 Data Model (JSON Output Schema)
@@ -77,12 +77,20 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
   "course_metadata": {
     "title": "String",
     "author": "String",
+    "publisher": "String",
+    "level": "introductory|intermediate|advanced|undergraduate_introductory|undergraduate_advanced|graduate",
     "target_audience": "String",
     "subject": "String",
     "source": "String",
     "description": "String",
-    "prerequisites": ["String"],
-    "learning_outcomes": ["String"]
+    "prerequisites_stated": ["String"],
+    "prerequisites_inferred": ["String"],
+    "learning_outcomes_stated": ["String"],
+    "learning_outcomes_inferred": ["String"],
+    "toc": [
+      { "chapter_number": "String", "title": "String", "page_number": 0 }
+    ],
+    "draft_notes": "String"
   },
   "overall_score": {
     "dimension_1": 0.0,
@@ -117,6 +125,10 @@ A deterministic, local Python CLI tool designed to read educational PDFs, determ
 - ADR-003: Standalone Metadata Extraction Workflow
 - ADR-004: Verbose JSON Output Strategy
 - ADR-005: Prioritize Accuracy Over Speed for PDF Parsing
+- ADR-037: Soft Word-Count Segmentation Ceiling (supersedes ADR-009)
+- ADR-038: Two-Phase Heuristic+LLM Metadata Pipeline (supersedes ADR-022)
+- ADR-039: TOC-Validated Segmentation Count (amends ADR-023)
+- ADR-040: Preface as Distinct Segment + Prose-Density Reference-Table Check (amends ADR-012, ADR-026)
 
 ## 7. Error Handling & Edge Cases
 - **Missing Metadata Fields:** Will be filled as `"Unknown"` or `null` if the PDF extractor fails. Does not block execution.
