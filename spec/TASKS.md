@@ -203,3 +203,47 @@ The user wants to divide the pedagogical evaluation into two distinct gates to b
 - [x] TASK-053: Add `evaluation_questions` to all 10 rubrics + evaluator checklist rendering.
   - Spec ref: ADR-036
   - Notes: Added 4–5 `evaluation_questions` per rubric to `rubrics.yaml`. Added `instructional_alignment` anti-inflation anchors. Strengthened `text_readability` grammar check. Added `_format_rubrics_for_prompt()` to `evaluator.py`; Module Gate Step 1 now "CHECKLIST" instead of "IDENTIFY".
+
+## Phase: Metadata & Segmentation Overhaul (ADR-037 → ADR-040)
+
+- [x] TASK-054: Implement `_extract_heuristic_metadata(pdf_path)` — returns intermediate dict `{raw_text_15, cover_text, title, author_candidate, publisher_candidate, toc_candidates}`. Reuses existing cover/title/font helpers; scopes author/publisher strictly to the cover pages.
+  - Spec ref: ADR-038, Q-029
+
+- [x] TASK-055: Implement `_extract_toc_heuristic(pages)` — detects "Contents" / "Table of Contents" pages and parses dotted-leader / indented-hierarchy / page-suffix lines into `List[{chapter_number, title, page_number}]`.
+  - Spec ref: ADR-038
+  - Blocked by: TASK-054
+
+- [x] TASK-056: Refactor `AIMetadataExtractor` in-place to a single Gemini-primary / Claude-fallback call using the new strict JSON schema. Delete `_ai_extract_list_fields()`, `_LIST_FIELDS_SYSTEM_PROMPT`, and the legacy two-call path. Add `_merge_heuristic_and_llm()` validator/merger.
+  - Spec ref: ADR-038, Q-029, Q-030
+  - Blocked by: TASK-055, TASK-057
+
+- [x] TASK-057: Update `CourseMetadata` Pydantic model with new fields (`prerequisites_stated`, `prerequisites_inferred`, `learning_outcomes_stated`, `learning_outcomes_inferred`, `toc: List[TOCEntry]`, `draft_notes`, `level` enum) and `field_validator`s for `level` and author/publisher word count. Delete legacy `prerequisites`/`learning_outcomes` flat fields.
+  - Spec ref: ADR-038, Q-030
+
+- [x] TASK-058: Replace `max_chars = 8000` with `max_words = 30000` soft ceiling in `SmartSegmenter`. Add `_word_count()` helper. Update `_merge_short_blocks()` and `_chunk_text()` to use word count. Keep `max_chars` as a deprecated kwarg that is coerced.
+  - Spec ref: ADR-037, Q-031
+
+- [x] TASK-059: Add `course_metadata: Optional[CourseMetadata] = None` parameter to `SmartSegmenter.__init__`. Validate Tier 1 and Tier 2 counts against `len(course_metadata.toc) ± 2` with fall-through and WARNING logs. Wire `src/main.py` to pass the extracted metadata into `SmartSegmenter(...)`.
+  - Spec ref: ADR-039
+  - Blocked by: TASK-057, TASK-058
+
+- [x] TASK-060: Add `preface` segment type + `_compute_prose_density(text)` helper (60% threshold) in `segmenter.py`. Update `_classify_segment()` to route preface headings correctly and to gate `reference_table` on prose density. Update `src/evaluator.py` to route `preface` into Course Gate context with zero Module Gate score. Update `EvaluatedSegment` docstring in `src/models.py`.
+  - Spec ref: ADR-040
+
+- [x] TASK-061: Create `examples/metadata_reference_thinkos.json` as calibration reference for Think OS v0.7.4 by Allen B. Downey (Green Tea Press) — used to anchor the LLM prompt and to diff future extractions against a known-good target.
+  - Spec ref: ADR-038
+
+- [x] TASK-062: Fix `_extract_toc_heuristic()` to skip sub-chapter entries (any entry whose `chapter_number` contains a dot). Update `_METADATA_SYSTEM_PROMPT` rule 5 to instruct the LLM to return only top-level chapters and infer them from raw text when the TOC page shows only sub-sections.
+  - Spec ref: ADR-041
+  - Notes: Universal rule — applies to all PDFs. For books where the printed TOC only has sub-sections, `toc_candidates` will be empty and the LLM becomes the sole source.
+
+- [x] TASK-063: Implement Tier 0 metadata-TOC-driven segmentation in `SmartSegmenter`. Add `_extract_toc_metadata()`, `_detect_contents_pages()`, and `_find_chapter_start_page()` methods. Wire into `segment()` before the existing Tier 1 call. Update `_find_first_chapter_block_index()` regex to match the new `Chapter N: Title` heading format.
+  - Spec ref: ADR-042
+  - Blocked by: TASK-059, TASK-062
+
+- [x] TASK-064: Add `criteria:` list (5 items) to each of the 10 rubrics in `config/rubrics.yaml` using the criteria from `config/criterias.md`. Add `_CRITERION_SCHEMA` at module level in `evaluator.py`. Update `_format_rubrics_for_prompt()` to render the criteria list. Update `_MODULE_EVAL_TOOL` and `_COURSE_EVAL_TOOL` schemas to include a required `criteria_scores` field.
+  - Spec ref: ADR-043
+
+- [x] TASK-065: Update module-gate scoring procedure in `_build_module_batch_prompts()` (replace 3-step calibration with criteria-based instructions). Add course-gate scoring procedure note to `_build_course_prompts()`. Extract `criteria_scores` from LLM responses in `_match_module_evaluations()`, `_call_claude_course()`, and `_call_gemini_course()`. Add `criteria_scores: Dict[str, Any]` field to `EvaluatedSegment` and `CourseAssessment` in `models.py`.
+  - Spec ref: ADR-043
+  - Blocked by: TASK-064

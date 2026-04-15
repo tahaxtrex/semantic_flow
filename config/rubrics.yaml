@@ -18,6 +18,12 @@ module_rubrics:
       unnecessary digressions and fluff?
       It should prioritize 'Must-Know' information over supplemental details.
     weight: 1.0
+    criteria:
+      - "The content directly addresses the module's stated topic or heading"
+      - "No significant off-topic digressions or filler paragraphs are present"
+      - "Must-know concepts are prioritized over supplemental trivia"
+      - "The opening of the segment makes the learning intent clear"
+      - "The content density is appropriate — no padding, no repetition for the sake of length"
     evaluation_questions:
       - "Does every paragraph directly serve the segment's stated learning goal?"
       - "Are there digressions, historical tangents, or off-topic content that distract from the core topic?"
@@ -37,6 +43,12 @@ module_rubrics:
       Grammatical errors, typos, and poorly constructed sentences that impede
       comprehension must be penalised here.
     weight: 1.0
+    criteria:
+      - "Sentences are reasonably short and not overloaded with clauses"
+      - "Vocabulary matches the stated audience level"
+      - "No grammatical errors or ambiguous phrasing detected"
+      - "Ideas are presented one at a time rather than piled together"
+      - "The text reads naturally without requiring re-reading to understand"
     evaluation_questions:
       - "Are sentences clear and appropriately short for the target audience?"
       - "Are there grammatical errors, spelling mistakes, or typos that impede reading?"
@@ -55,6 +67,12 @@ module_rubrics:
       for the intended audience? Technical terminology must be defined
       consistently upon first use.
     weight: 1.0
+    criteria:
+      - "Every technical term is defined at or before its first use"
+      - "No unexplained acronyms or abbreviations are present"
+      - "Sentence structure is appropriate for the intended audience"
+      - "Terminology is used consistently throughout the segment"
+      - "Explanations move from simple to complex, not the reverse"
     evaluation_questions:
       - "Is every new technical term defined at or before its first use?"
       - "Is notation and terminology consistent throughout the segment, or does naming shift?"
@@ -74,6 +92,12 @@ module_rubrics:
       Scenarios should be realistic enough that the learner understands
       WHY a concept is useful, not just HOW to type it.
     weight: 1.0
+    criteria:
+      - "At least one concrete example is present in the segment"
+      - "Examples use realistic data or scenarios, not placeholders like a=5 or x=[1,2,3]"
+      - "Each example demonstrates WHY the concept is useful, not just HOW to type it"
+      - "Examples are complete enough to be followed without guessing"
+      - "The example connects to a recognizable real-world situation"
     evaluation_questions:
       - "Do examples use realistic, domain-grounded data (e.g. student records, sales figures, inventory) rather than trivial placeholders (a=5, x=[1,2,3])?"
       - "After reading an example, would a student understand WHY this concept is useful in the real world?"
@@ -90,6 +114,12 @@ module_rubrics:
       Are examples consistent and thematically connected across sections?
       Examples should build on each other rather than being isolated vignettes.
     weight: 1.0
+    criteria:
+      - "Examples use a consistent domain or theme within the segment"
+      - "Later examples build on or reference earlier ones"
+      - "Variable names and scenarios are consistent across examples"
+      - "No two examples contradict each other"
+      - "Examples collectively tell a coherent mini-story rather than being isolated snippets"
     evaluation_questions:
       - "Do examples across the segment share a common domain or running scenario?"
       - "Does each new example build on or extend something already introduced, or does it reset completely?"
@@ -109,6 +139,12 @@ course_rubrics:
       Prerequisites from the Course Metadata? Does the course ordering respect
       the Target Audience's expected knowledge base?
     weight: 1.0
+    criteria:
+      - "Foundational concepts are introduced before the modules that depend on them"
+      - "The stated prerequisites in course metadata match what the content actually assumes"
+      - "No module requires knowledge that was never taught earlier in the course"
+      - "The course respects the target audience's expected starting knowledge level"
+      - "Concept dependencies follow a clear logical order across modules"
     evaluation_questions:
       - "Are all foundational concepts introduced before the modules that depend on them?"
       - "Do the assumed prerequisites in the content match the explicitly stated prerequisites in the metadata?"
@@ -127,6 +163,12 @@ course_rubrics:
       and guidelines explicit? Technical requirements and support resources
       should be easily locatable.
     weight: 1.0
+    criteria:
+      - "A clear table of contents exists and reflects the actual module structure"
+      - "Module boundaries are clearly defined and consistently labeled"
+      - "Navigation cues (headings, numbering, summaries) are present throughout"
+      - "Technical requirements or setup instructions are easy to locate"
+      - "The overall structure follows a recognizable and logical course format"
     evaluation_questions:
       - "Is there a clear table of contents or module overview that lets a student plan their study?"
       - "Are module/chapter boundaries clearly demarcated with headings or section numbers?"
@@ -147,6 +189,12 @@ course_rubrics:
       Outcomes is NOT sufficient — the content must show practical application context.
       A course that teaches syntax without showing real-world usage scores low.
     weight: 1.0
+    criteria:
+      - "The course connects its content to real professional tasks the target audience would face"
+      - "At least some examples or exercises use industry-relevant scenarios"
+      - "The course demonstrates WHERE and HOW skills are used in practice, not just what they are"
+      - "Applied projects, case studies, or industry scenarios are present"
+      - "A working professional in the target role would find the content practically useful"
     evaluation_questions:
       - "Are there real-world projects, case studies, or industry scenarios anywhere in the course?"
       - "Do examples show HOW and WHERE a concept is used professionally, not just how to write the syntax?"
@@ -164,6 +212,12 @@ course_rubrics:
       the course jump abruptly between unrelated topics? Does the narrative
       thread carry naturally from one module to the next?
     weight: 1.0
+    criteria:
+      - "Transitions between modules are explicit and intentional, not abrupt"
+      - "Later modules reference and build on concepts from earlier ones"
+      - "The course follows a single coherent narrative thread from start to finish"
+      - "No module feels like it was inserted out of place"
+      - "The pacing across modules is consistent — no sudden jumps in complexity"
     evaluation_questions:
       - "Do modules transition smoothly, or are there jarring topic jumps with no bridging material?"
       - "Is there a narrative or thematic thread that ties the course together from start to finish?"
@@ -188,6 +242,12 @@ course_rubrics:
       that the instructional depth and activities match the complexity demanded by
       the LOs. A 9-10 requires rich, purposeful alignment throughout all modules.
     weight: 1.0
+    criteria:
+      - "Every stated learning outcome is addressed by at least one module"
+      - "The instructional depth matches the complexity demanded by the learning outcomes"
+      - "Activities and exercises are aligned with what the learning outcomes require"
+      - "The pacing is consistent with the stated audience level throughout"
+      - "The course as a whole delivers on its stated objectives, not just touches them"
     evaluation_questions:
       - "Does every stated Learning Outcome have at least one module that directly and substantively addresses it?"
       - "Is the instructional depth (time spent, complexity of examples) proportional to the importance of each LO?"

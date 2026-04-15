@@ -21,6 +21,14 @@ from src.models import (
 
 logger = logging.getLogger(__name__)
 
+# Schema for a single rubric's 5 criteria scores (each 0/1/2).
+# Defined at module level so it is accessible from class-body dict comprehensions.
+_CRITERION_SCHEMA = {
+    "type": "object",
+    "properties": {f"c{i}": {"type": "integer", "minimum": 0, "maximum": 2} for i in range(1, 6)},
+    "required": [f"c{i}" for i in range(1, 6)],
+}
+
 # Per-batch retry budget for the selected model.
 MAX_RETRIES_PER_BATCH = 3
 RETRY_BACKOFF_SECONDS = 5  # doubles each attempt: 5s → 10s → 20s
@@ -107,6 +115,13 @@ class LLMEvaluator:
             lines.append(f"### {name} (`{rid}`) — weight {w}")
             if desc:
                 lines.append(desc)
+
+            criteria = r.get("criteria", [])
+            if criteria:
+                lines.append("\nCriteria (score each: 0 = not present, 1 = partially present, 2 = fully present):")
+                for i, c in enumerate(criteria, 1):
+                    lines.append(f"  C{i}: {c}")
+                lines.append("  → Total = C1+C2+C3+C4+C5  (range 0–10)")
 
             if guide:
                 lines.append("\nScoring guide:")
@@ -264,7 +279,14 @@ class LLMEvaluator:
                             },
                             "scores": {
                                 "type": "object",
-                                "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _MODULE_SCORE_FIELDS},
+                                "description": "Total score per rubric (0-10), must equal the sum of its 5 criteria scores.",
+                                "properties": {f: {"type": "integer", "minimum": 0, "maximum": 10} for f in _MODULE_SCORE_FIELDS},
+                                "required": _MODULE_SCORE_FIELDS,
+                            },
+                            "criteria_scores": {
+                                "type": "object",
+                                "description": "Per-criterion breakdown for each rubric. Each criterion scored 0/1/2.",
+                                "properties": {f: _CRITERION_SCHEMA for f in _MODULE_SCORE_FIELDS},
                                 "required": _MODULE_SCORE_FIELDS,
                             },
                             "reasoning": {
@@ -273,7 +295,7 @@ class LLMEvaluator:
                                 "required": _MODULE_RATIONALE_FIELDS,
                             },
                         },
-                        "required": ["segment_id", "summary", "scores", "reasoning"],
+                        "required": ["segment_id", "summary", "scores", "criteria_scores", "reasoning"],
                     },
                 }
             },
@@ -309,27 +331,26 @@ You are an expert pedagogical evaluator. Evaluate the provided course segments b
 COURSE CONTEXT (for reference only — do not score course-level structure here):
 Title: {metadata.title}
 Target Audience: {metadata.target_audience}
-Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
+Learning Outcomes: {', '.join((metadata.learning_outcomes_stated or []) + (metadata.learning_outcomes_inferred or [])) or 'None specified'}
 
 MODULE RUBRICS (score each segment on ONLY these 5 dimensions):
 {self.module_rubrics_yaml}
 
-SCORING PROCEDURE — Three-Step Calibration (apply for every rubric, every segment):
-For each rubric dimension, follow these three steps IN ORDER before committing a score:
+SCORING PROCEDURE — Criteria-Based Scoring (apply for every rubric, every segment):
 
-  Step 1 — CHECKLIST: Work through each question in that rubric's "Evaluation checklist" above.
-           For each question, find 1-2 specific evidence pieces from the segment text (quote short
-           phrases) and mark whether the answer is positive (↑) or negative (↓).
-           If no evidence exists for a question, treat it as negative (↓).
+Each rubric above lists exactly 5 criteria (C1–C5). For every rubric, score each criterion:
+  0 = not present in this segment
+  1 = partially present
+  2 = fully present
 
-  Step 2 — ANCHOR to one of these bands based on your checklist answers:
-           1-3 (Poor):      Most checklist answers negative; fundamentally inadequate
-           4-6 (Adequate):  Mixed answers; present but generic, trivial, or incomplete
-           7-8 (Good):      Most checklist answers positive; solid and effective
-           9-10 (Excellent): All checklist answers strongly positive; publishable quality
+The rubric's total score = C1 + C2 + C3 + C4 + C5  (range 0–10).
 
-  Step 3 — DIFFERENTIATE within the band. Pick the specific integer.
-           A score of 7 vs 8 must be justified by a concrete quality difference.
+You MUST return:
+  • "criteria_scores": per-rubric object with keys c1–c5 (each 0, 1, or 2)
+  • "scores": the computed sum for each rubric (must equal the sum of its criteria)
+
+Use the scoring guides and calibration anchors below to cross-check your totals —
+if the computed sum conflicts with the band anchors, revisit your criteria scores.
 
 CALIBRATION ANCHORS — scores MUST match these exemplars. If in doubt, score lower, not higher.
 
@@ -413,6 +434,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
             try:
                 scores = ModuleScores(**item.get("scores", {}))
                 reasoning = ModuleReasoning(**item.get("reasoning", {}))
+                criteria_scores = item.get("criteria_scores", {})
                 summary = item.get("summary", "")
                 incomplete = False
             except (ValidationError, Exception) as e:
@@ -422,6 +444,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                     example_concreteness=0, example_coherence=0,
                 )
                 reasoning = ModuleReasoning()
+                criteria_scores = {}
                 summary = ""
                 incomplete = True
 
@@ -431,6 +454,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                 text=segment.text,
                 segment_type=segment.segment_type,
                 scores=scores,
+                criteria_scores=criteria_scores,
                 reasoning=reasoning,
                 summary=summary,
                 incomplete=incomplete,
@@ -551,7 +575,14 @@ This summary will be used as context in a subsequent holistic course-level evalu
             "properties": {
                 "scores": {
                     "type": "object",
-                    "properties": {f: {"type": "integer", "minimum": 1, "maximum": 10} for f in _COURSE_SCORE_FIELDS},
+                    "description": "Total score per rubric (0-10), must equal the sum of its 5 criteria scores.",
+                    "properties": {f: {"type": "integer", "minimum": 0, "maximum": 10} for f in _COURSE_SCORE_FIELDS},
+                    "required": _COURSE_SCORE_FIELDS,
+                },
+                "criteria_scores": {
+                    "type": "object",
+                    "description": "Per-criterion breakdown for each course rubric. Each criterion scored 0/1/2.",
+                    "properties": {f: _CRITERION_SCHEMA for f in _COURSE_SCORE_FIELDS},
                     "required": _COURSE_SCORE_FIELDS,
                 },
                 "reasoning": {
@@ -560,7 +591,7 @@ This summary will be used as context in a subsequent holistic course-level evalu
                     "required": _COURSE_RATIONALE_FIELDS,
                 },
             },
-            "required": ["scores", "reasoning"],
+            "required": ["scores", "criteria_scores", "reasoning"],
         },
     }
 
@@ -595,12 +626,18 @@ Title: {metadata.title}
 Author: {metadata.author or 'Unknown'}
 Target Audience: {metadata.target_audience}
 Level: {metadata.level or 'Not specified'}
-Prerequisites: {', '.join(metadata.prerequisites) if metadata.prerequisites else 'None specified'}
-Learning Outcomes: {', '.join(metadata.learning_outcomes) if metadata.learning_outcomes else 'None specified'}
+Prerequisites: {', '.join((metadata.prerequisites_stated or []) + (metadata.prerequisites_inferred or [])) or 'None specified'}
+Learning Outcomes: {', '.join((metadata.learning_outcomes_stated or []) + (metadata.learning_outcomes_inferred or [])) or 'None specified'}
 Description: {metadata.description or 'Not provided'}
 
 COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
 {self.course_rubrics_yaml}
+
+SCORING PROCEDURE — Criteria-Based Scoring:
+Each rubric above lists exactly 5 criteria (C1–C5). Score each criterion:
+  0 = not present  |  1 = partially present  |  2 = fully present
+Total score for the rubric = C1+C2+C3+C4+C5 (range 0–10).
+Return both "criteria_scores" (c1–c5 per rubric) and "scores" (the computed sums).
 """
 
         user_prompt = ""
@@ -765,9 +802,10 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
         data = tool_block.input
         scores = CourseScores(**data["scores"])
         reasoning = CourseReasoning(**data["reasoning"])
+        criteria_scores = data.get("criteria_scores", {})
         score_values = [v for v in data["scores"].values() if isinstance(v, (int, float))]
         overall = round(sum(score_values) / len(score_values), 2) if score_values else 0.0
-        return CourseAssessment(scores=scores, reasoning=reasoning, overall_score=overall)
+        return CourseAssessment(scores=scores, reasoning=reasoning, criteria_scores=criteria_scores, overall_score=overall)
 
     def _call_gemini_course(self, system_prompt: str, user_prompt: str) -> CourseAssessment:
         logger.info("[Course Gate] Running capstone course evaluation via Gemini")
@@ -789,9 +827,10 @@ COURSE RUBRICS (score the ENTIRE COURSE on ONLY these dimensions):
             raise
         scores = CourseScores(**data["scores"])
         reasoning = CourseReasoning(**data.get("reasoning", {}))
+        criteria_scores = data.get("criteria_scores", {})
         score_values = [v for v in data["scores"].values() if isinstance(v, (int, float))]
         overall = round(sum(score_values) / len(score_values), 2) if score_values else 0.0
-        return CourseAssessment(scores=scores, reasoning=reasoning, overall_score=overall)
+        return CourseAssessment(scores=scores, reasoning=reasoning, criteria_scores=criteria_scores, overall_score=overall)
 
     def evaluate_course(
         self,

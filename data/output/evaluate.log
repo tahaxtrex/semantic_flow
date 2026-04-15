@@ -1070,3 +1070,35 @@ anthropic.AuthenticationError: Error code: 401 - {'type': 'error', 'error': {'ty
 2026-03-26 17:48:56,523 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
 2026-03-26 17:48:56,524 [INFO] SemanticFlowEvaluator: Successfully evaluated course.pdf -> course_evaluation.json
 2026-03-26 17:48:56,524 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.
+2026-04-10 17:11:59,973 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-04-10 17:11:59,973 [INFO] SemanticFlowEvaluator: Input: data/courses
+2026-04-10 17:11:59,973 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-04-10 17:11:59,973 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-04-10 17:11:59,973 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-04-10 17:12:00,962 [INFO] SemanticFlowEvaluator: --- Processing: thinkos.pdf ---
+2026-04-10 17:12:00,962 [INFO] SemanticFlowEvaluator: Step 1/5: Metadata Extraction
+2026-04-10 17:12:00,962 [INFO] SemanticFlowEvaluator: Step 2/5: Deterministic Segmentation
+2026-04-15 14:35:11,835 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-04-15 14:35:11,837 [INFO] SemanticFlowEvaluator: Input: data/courses
+2026-04-15 14:35:11,837 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-04-15 14:35:11,837 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-04-15 14:35:11,837 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-04-15 14:35:12,601 [INFO] SemanticFlowEvaluator: --- Processing: thinkos.pdf ---
+2026-04-15 14:35:12,601 [INFO] SemanticFlowEvaluator: Step 1/5: Metadata Extraction
+2026-04-15 14:35:12,601 [INFO] SemanticFlowEvaluator: Step 2/5: Deterministic Segmentation
+2026-04-15 14:38:01,279 [INFO] SemanticFlowEvaluator: Starting SemanticFlow Pedagogical Evaluator
+2026-04-15 14:38:01,279 [INFO] SemanticFlowEvaluator: Input: data/courses
+2026-04-15 14:38:01,279 [INFO] SemanticFlowEvaluator: Output directory: data/output
+2026-04-15 14:38:01,279 [INFO] SemanticFlowEvaluator: Config path: config/rubrics.yaml
+2026-04-15 14:38:01,279 [INFO] SemanticFlowEvaluator: Found 1 PDF(s) to process.
+2026-04-15 14:38:02,017 [INFO] SemanticFlowEvaluator: --- Processing: thinkos.pdf ---
+2026-04-15 14:38:02,017 [INFO] SemanticFlowEvaluator: Step 1/5: Metadata Extraction
+2026-04-15 14:38:02,018 [INFO] SemanticFlowEvaluator: Step 2/5: Deterministic Segmentation
+2026-04-15 14:38:08,197 [INFO] SemanticFlowEvaluator: Step 3/5: Module Gate Evaluation (12 segments)
+2026-04-15 14:38:08,197 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 1/3 (5 segments)
+2026-04-15 14:39:07,422 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 2/3 (5 segments)
+2026-04-15 14:39:53,911 [INFO] SemanticFlowEvaluator:   [Module Gate] Batch 3/3 (2 segments)
+2026-04-15 14:40:51,358 [INFO] SemanticFlowEvaluator: Step 4/5: Course Gate Evaluation (capstone)
+2026-04-15 14:41:39,793 [INFO] SemanticFlowEvaluator: Step 5/5: Aggregation and Export
+2026-04-15 14:41:39,795 [INFO] SemanticFlowEvaluator: Successfully evaluated thinkos.pdf -> thinkos_evaluation.json
+2026-04-15 14:41:39,795 [INFO] SemanticFlowEvaluator: Evaluation pipeline completely finished.

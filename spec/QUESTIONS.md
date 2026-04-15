@@ -245,3 +245,34 @@ Corrected Split:
 **Answer:** Yes. Numbering alone is insufficient evidence. Require an imperative verb or exercise keyword after the number. See ADR-034.
 **Impact:** ADR-034, `src/segmenter.py`
 
+---
+
+# Phase 4: Metadata & Segmentation Overhaul
+
+## Q-029: Metadata LLM Provider Policy
+**Phase:** Metadata Refactor
+**Date:** 2026-04-10
+**Status:** Answered
+
+**Question:** The current `AIMetadataExtractor` has a Claude→Gemini fallback chain. With the move to a single-call, strict-JSON metadata pipeline (ADR-038), should we keep both providers, use Gemini only, or use Claude only?
+**Answer:** **Gemini primary, Claude fallback.** Gemini 2.5 Flash is cheaper and its native `response_schema` + `response_mime_type="application/json"` give stronger structural guarantees for the new schema. Claude Sonnet 4.6 is retained as a fallback for the case where `GEMINI_API_KEY` is missing or the Gemini call fails. The existing Claude+Gemini skeleton in `AIMetadataExtractor` is kept but refactored in-place for the new single-call schema; `_ai_extract_list_fields()` and the two-call path are removed entirely.
+**Impact:** ADR-038, `src/metadata.py`
+
+## Q-030: Backwards Compatibility for Legacy `prerequisites` / `learning_outcomes` Fields
+**Phase:** Metadata Refactor
+**Date:** 2026-04-10
+**Status:** Answered
+
+**Question:** ADR-038 replaces the flat `prerequisites: List[str]` and `learning_outcomes: List[str]` fields on `CourseMetadata` with `_stated` / `_inferred` pairs. Should we retain the old fields as aliases (backwards compat) or delete them outright and migrate every consumer?
+**Answer:** **Replace outright.** Retain nothing. Every downstream consumer (`src/evaluator.py`, `src/exporter.py`, `src/main.py`, tests) is updated in a single pass to read `prerequisites_stated + prerequisites_inferred` (and similarly for outcomes) where a union is needed. This keeps the schema clean and avoids dual-read code paths that would silently mask future bugs.
+**Impact:** ADR-038, `src/metadata.py`, `src/evaluator.py`, `src/exporter.py`, `src/main.py`, `tests/test_metadata.py`
+
+## Q-031: Segmenter `max_words` Default
+**Phase:** Segmentation Refactor
+**Date:** 2026-04-10
+**Status:** Answered
+
+**Question:** ADR-037 replaces the hard `max_chars = 8000` cap with a soft `max_words` ceiling. What default value should `max_words` carry?
+**Answer:** **30,000 words** (≈40,000 tokens at ~1.3 tokens/word). This is a conservative proxy — well under the 200k context window of Claude Opus 4.6 and Gemini 2.5 Flash, but large enough that no ordinary chapter ever hits the ceiling. Pathological 40k-word "everything" chapters still get chunked safely at paragraph boundaries.
+**Impact:** ADR-037, `src/segmenter.py`
+

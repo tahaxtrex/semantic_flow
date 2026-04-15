@@ -1,3 +1,70 @@
+## 2026-04-15 — TOC-Driven Segmentation, Criteria-Based Scoring (ADR-041 → ADR-043)
+
+**Type:** Feature (x2) + Architectural change (x1) + Refinement (x1)
+
+**What changed:**
+
+- `src/metadata.py` — `_extract_toc_heuristic()`: Added a `continue` guard that skips any TOC entry whose `chapter_number` contains a dot (e.g. `1.1`, `0.1`). Only top-level chapter entries (plain integers, `Chapter N`, `Part I`) are kept. Updated `_METADATA_SYSTEM_PROMPT` rule 5: the LLM is now instructed to return only top-level chapters and, if the TOC page lists only sub-sections, to infer chapter titles from the chapter headings found in the raw 15-page text.
+
+- `src/segmenter.py` — New **Tier 0** inserted before the existing three tiers. `_extract_toc_metadata()` uses `course_metadata.toc` chapter titles to locate each chapter's physical start page via a forward sequential search (`_find_chapter_start_page()`). A companion `_detect_contents_pages()` helper identifies dotted-leader TOC/Contents pages and skips them so the search is not confused by the TOC listing. `_find_chapter_start_page()` requires BOTH title-word matching AND a chapter-opening pattern at the top of the page (`^chapter N` or `^N <word>`) to distinguish real chapter-start pages from running-header pages (e.g. `"74 Chapter 10. Condition variables 10.2…"` vs `"Chapter 10 Condition variables 10.1…"`). Produces: one `Frontmatter` block (pages before Chapter 1), one block per chapter using `Chapter N: Title` headings, trailing pages absorbed into the last chapter block. Falls through to Tier 1 if fewer than 2 chapter start pages are found.
+
+- `config/rubrics.yaml` — Added a `criteria:` list of exactly 5 items under each of the 10 rubrics (5 module + 5 course), sourced verbatim from `config/criterias.md`. Descriptions, weights, scoring guides, and evaluation questions are unchanged.
+
+- `src/evaluator.py` + `src/models.py` — Criteria-based scoring (ADR-043). Each rubric now has 5 criteria scored 0/1/2 (not present / partially / fully). The rubric total = sum of the 5 scores (range 0–10). Changes: module-level `_CRITERION_SCHEMA`; `_format_rubrics_for_prompt()` renders the criteria list in the prompt; the module-gate scoring procedure replaces the 3-step calibration with criteria-based instructions; `_MODULE_EVAL_TOOL` and `_COURSE_EVAL_TOOL` schemas gain a required `criteria_scores` field (`{c1..c5}` per rubric); `_match_module_evaluations()`, `_call_claude_course()`, and `_call_gemini_course()` extract and pass through `criteria_scores`; `scores` range updated from `1-10` to `0-10`. `EvaluatedSegment` and `CourseAssessment` gain `criteria_scores: Dict[str, Any]` — serialised automatically in the output JSON.
+
+**Why it changed:**
+
+1. **TOC sub-chapters inflating segment count.** `_extract_toc_heuristic()` was capturing sub-chapter entries (`1.1`, `1.2`…) rather than top-level chapters, causing the metadata TOC to contain 55 entries for an 11-chapter book. The LLM was then returning those sub-entries as the TOC, corrupting the Tier 0 chapter-count validation and downstream segmentation.
+
+2. **Segmenter ignored the metadata TOC for boundary detection.** The extracted TOC was only used as a count reference for Tier 1/2/3 validation (±2 tolerance). Tier 0 now drives segmentation directly from the titles, producing structurally correct frontmatter + chapter + backmatter segments regardless of whether the PDF has bookmarks.
+
+3. **Holistic 1-10 scores were a black box.** A segment scoring 4 on `example_concreteness` gave no signal about which of the five quality dimensions failed. Criteria-based scoring exposes the exact breakdown (e.g. "example present but uses placeholder data") in the output JSON without changing the 0-10 scale or the rubric weights.
+
+**Affected artifacts:**
+- ADR-038 → Amended by ADR-041 (TOC heuristic sub-chapter filter + LLM prompt rule)
+- ADR-039 → Amended by ADR-042 (Tier 0 metadata-TOC segmentation)
+- ADR-036 → Amended by ADR-043 (criteria-based scoring replaces 3-step calibration)
+- TASK-062 → TASK-065 → Completed
+
+---
+
+## 2026-04-10 — Metadata & Segmentation Overhaul (ADR-037 → ADR-040)
+
+**Type:** Architectural change (x2) + Refinement (x2) + Bug Fix (x2)
+
+**What changed:**
+- `src/metadata.py`: New two-phase pipeline. Heuristic phase (`_extract_heuristic_metadata`) extracts first 15 pages, cover text (first 3 pages only), font-heuristic title, author/publisher candidates scoped strictly to cover pages, and a new `_extract_toc_heuristic()` TOC parser (dotted leaders, indented hierarchies, page-number suffixes). LLM enrichment phase — a single focused call with strict JSON schema returning `title`, `author`, `publisher`, `level` (enum), `target_audience`, `prerequisites_stated`, `prerequisites_inferred`, `learning_outcomes_stated`, `learning_outcomes_inferred`, `toc: List[TOCEntry]`, `draft_notes`. Gemini 2.5 Flash primary, Claude Sonnet 4.6 fallback (Q-029). `AIMetadataExtractor` refactored in-place with new schema; `_ai_extract_list_fields()`, `_LIST_FIELDS_SYSTEM_PROMPT`, and the legacy two-call path deleted.
+- `src/metadata.py` — `CourseMetadata` Pydantic model: New `TOCEntry` submodel. New fields `prerequisites_stated`, `prerequisites_inferred`, `learning_outcomes_stated`, `learning_outcomes_inferred`, `toc`, `draft_notes`. New `field_validator` on `level` (enforces enum) and on `author` / `publisher` (coerces values with more than 6 words to `""` — structural defense against body-text corruption). Legacy flat `prerequisites` / `learning_outcomes` fields **deleted outright** per Q-030.
+- `src/segmenter.py`: `max_chars = 8000` replaced with `max_words = 30000` soft ceiling (ADR-037). Added `_word_count()` helper. `_merge_short_blocks()` and `_chunk_text()` now reason in words. A single chapter is never split unless it exceeds 30k words — modern LLM context windows handle full chapters as one coherent pedagogical unit, so mid-content splits are no longer needed.
+- `src/segmenter.py`: `SmartSegmenter.__init__` gains `course_metadata: Optional[CourseMetadata] = None` parameter. `segment()` validates Tier 1 (bookmark outline) and Tier 2 (UNIT marker scan) chapter counts against `len(course_metadata.toc) ± 2`; falls through to the next tier with a WARNING log on mismatch. Tier 3 (font-heuristic) logs the discrepancy but continues.
+- `src/segmenter.py`: New segment type `preface` (ADR-040). Headings matching `^(preface|foreword|introduction|about\s+this\s+book)\b` that appear before the first detected chapter are now classified as `preface` rather than collapsed into `frontmatter`. `src/evaluator.py` routes `preface` into Course Gate context (feeds `structural_usability` and `prerequisite_alignment`) while assigning zero Module Gate score.
+- `src/segmenter.py`: New `_compute_prose_density(text)` helper. `_classify_segment()` now gates the `reference_table` assignment on `prose_density <= 0.60` — prose-heavy instructional chapters containing syntax tables are no longer silently bypassed by the Module Gate.
+- `src/main.py`: Wired to pass the extracted `CourseMetadata` into `SmartSegmenter(course_metadata=metadata)`. Logging summary updated to use the new `_stated` / `_inferred` field names.
+- `src/evaluator.py`: All accessors for `metadata.prerequisites` / `metadata.learning_outcomes` migrated to `prerequisites_stated + prerequisites_inferred` (and analogous for outcomes). New `preface` branch in Course Gate context construction.
+- `src/exporter.py`: Output JSON schema updated to serialize the new metadata fields directly. Docstring updated.
+- `src/models.py`: `EvaluatedSegment` docstring updated to list `preface` as an allowed `segment_type`.
+- `examples/metadata_reference_thinkos.json`: **New.** Calibration reference for Think OS v0.7.4 by Allen B. Downey (Green Tea Press). Captures the expected extraction for a book whose learning outcomes and prerequisites are stated only in a prose preface — a deliberate test of the `_inferred` pathway.
+- `tests/test_metadata.py`, `tests/test_segmenter.py`, `tests/test_aggregator.py`: Rewritten/extended for the new schema. New tests: `test_metadata_heuristic_phase` (author/publisher strictly from cover), `test_metadata_validator_rejects_long_author` (>6-word author coerced to empty), `test_segmenter_respects_toc_count` (TOC mismatch triggers fall-through), `test_segmenter_preface_as_distinct_type`, `test_segmenter_prose_density_check`, `test_segmenter_word_count_ceiling`.
+
+**Why it changed:**
+Two pain points surfaced during Course Gate calibration:
+
+1. **Metadata gaps corrupted Course Gate scoring.** The regex + targeted-AI approach from ADR-022 reliably returned `learning_outcomes = []` and `prerequisites = []` for books like Think OS whose pedagogical goals are stated in a prose preface rather than a labeled bullet list. Occasional author/publisher pollution from body text compounded the problem. The Course Gate's `prerequisite_alignment` and `instructional_alignment` rubrics then scored against empty ground-truth.
+2. **The 8k character cap split chapters mid-content.** ADR-009 was written for 16k-token context windows. Modern Claude Opus 4.6 and Gemini 2.5 Flash both handle full chapters (200k+ tokens), and a single chapter's pedagogical arc is the natural grain for Module Gate scoring. Splitting mid-content corrupted `instructional_flow` and `conceptual_continuity` signals.
+
+The fix also closes two classification bugs: preface bundled into frontmatter (losing Course Gate signal), and `reference_table` over-tagging prose-heavy chapters that happen to contain tables.
+
+**Affected artifacts:**
+- ADR-009 → **Superseded** by ADR-037 (soft word-count ceiling)
+- ADR-022 → **Superseded** by ADR-038 (two-phase heuristic + single-call pipeline)
+- ADR-023 → **Amended** by ADR-039 (Tier 1/2 counts validated against metadata TOC)
+- ADR-012 → **Amended** by ADR-040 (preface promoted to distinct type)
+- ADR-026 → **Amended** by ADR-040 (reference_table gated on prose density)
+- Q-029, Q-030, Q-031 → **New**
+- TASK-054 → TASK-061 → **New** (in progress)
+
+---
+
 ## 2026-03-25 — UNIT Marker Segmentation, Rubric Checklist Format & Anti-Inflation Fixes
 
 **Type:** Feature (x1) + Refinement (x3) + Bug Fix (x1)
