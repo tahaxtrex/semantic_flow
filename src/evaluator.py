@@ -378,6 +378,11 @@ CALIBRATION ANCHORS — scores MUST match these exemplars. If in doubt, score lo
     3 — Completely disconnected examples; each sub-section invents an unrelated new scenario
     5 — Examples are loosely themed but don't build on each other; narrative resets between topics
     8 — Examples share a consistent domain or running scenario that accumulates across the segment
+
+  business_relevance (course-level rubric — provided here as a calibration reference):
+    2 — No real-world context; every example uses a=5, x=[1,2,3], or a domain-labelled placeholder with no task
+    5 — Domain label present (e.g. "employee_salary") but no professional workflow, decision, or real task is shown
+    8 — Realistic scenario with a professional task: "parse shift records from CSV, flag overtime, generate payslip"
 {cross_segment_ctx}
 
 EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
@@ -386,14 +391,18 @@ EXTRACTION NOTES (pipeline artifacts — do not penalise the course for these):
 - Text was extracted from PDF; minor formatting artifacts (e.g. [?] placeholders) are NOT a property of the course.
 - [TABLE: ...] markers indicate a table was detected but could not be rendered as prose — treat as a structured reference element.
 - [CODE] / [/CODE] blocks contain verbatim code examples extracted from a monospace font region.
+- HEADING MISMATCH: If a segment's extracted heading appears inconsistent with its body text (e.g. the heading names a chapter whose content does not begin until the following segment), treat this as a PDF extraction boundary artifact. Evaluate the body on its own merits. Do NOT penalise goal_focus C4 solely because the extracted heading and the body text are misaligned — only penalise when the body itself is unfocused or digressive regardless of the heading.
 
-For each segment, you must also provide a 1-2 sentence 'summary' of the segment's topic and key concepts.
-This summary will be used as context in a subsequent holistic course-level evaluation.
+For each segment, you must also provide a 'summary' of 3-4 sentences covering:
+(1) the topic and key concepts taught in this segment,
+(2) the prerequisite knowledge this segment assumes from the reader,
+(3) what the learner can do or understand after reading it,
+(4) how this segment connects to or leads into the next topic.
+This summary will be used as the primary input to a subsequent holistic course-level evaluation — richer summaries produce more accurate course assessments.
 """
         user_prompt = "Score the following segments:\n\n"
         for i, s in enumerate(segments):
             user_prompt += f"--- SEGMENT ID: {s.segment_id} ---\n"
-            user_prompt += f"Heading: {s.heading or 'None'}\n"
             # ADR-030: inject previous segment summary for cross-segment awareness
             if i > 0 and segments[i-1].segment_id in [seg.segment_id for seg in segments[:i]]:
                 user_prompt += f"(Previous segment covered: see segment {segments[i-1].segment_id} above)\n"
@@ -638,19 +647,26 @@ Each rubric above lists exactly 5 criteria (C1–C5). Score each criterion:
   0 = not present  |  1 = partially present  |  2 = fully present
 Total score for the rubric = C1+C2+C3+C4+C5 (range 0–10).
 Return both "criteria_scores" (c1–c5 per rubric) and "scores" (the computed sums).
+
+CALIBRATION GUARDS — apply before committing any score:
+- business_relevance: A domain-labelled variable name (employee_salary, student_grade) is NOT industry context. Score C2 as 0 unless the example shows a professional performing a realistic task. A course that names a domain but never shows a workflow anchors at 4 total — do not exceed this without concrete evidence of professional task context.
+- fluidity_continuity: Apparent module ordering anomalies (a module whose summary discusses a topic different from its heading) are typically PDF segmentation artifacts, not course design flaws. Do not penalise fluidity_continuity for heading/content mismatches — penalise only when the instructional content itself jumps without logical connection.
 """
 
         user_prompt = ""
 
-        # Include non-instructional sections (TOC, Preface) as course structure evidence
+        # Include non-instructional sections (TOC, Preface) as course structure evidence.
+        # critic.v4 Issue 4: frontmatter/preface segments (where the full TOC and
+        # course overview live) are given a higher truncation limit so structural_usability
+        # scoring is not based on a half-rendered table of contents.
         if non_instructional_segments:
             user_prompt += "## Course Structure Sections (TOC, Preface, etc.)\n"
             for seg in non_instructional_segments:
                 user_prompt += f"\n### {seg.heading or seg.segment_type.upper()} (ID {seg.segment_id})\n"
-                # Truncate long non-instructional segments to save tokens
                 text = seg.text
-                if len(text) > 1500:
-                    text = text[:1500] + "\n[... truncated for brevity ...]"
+                limit = 4000 if getattr(seg, "segment_type", "") in ("frontmatter", "preface") else 1500
+                if len(text) > limit:
+                    text = text[:limit] + "\n[... truncated for brevity ...]"
                 user_prompt += text + "\n"
 
         # Include condensed module summaries as the sequential course narrative
@@ -769,7 +785,7 @@ Return both "criteria_scores" (c1–c5 per rubric) and "scores" (the computed su
         """
         import re as _re
         _TOC_SIGNALS = _re.compile(
-            r'\b(table of contents|preface|introduction|chapter\s*1|module\s*1)\b',
+            r'\b(table of contents|preface|introduction|chapter\s*[01i]|module\s*[01i])\b',
             _re.IGNORECASE,
         )
         for seg in non_instructional_segments:
@@ -777,14 +793,25 @@ Return both "criteria_scores" (c1–c5 per rubric) and "scores" (the computed su
                 return False
             if _TOC_SIGNALS.search(getattr(seg, 'heading', '') or ''):
                 return False
+        # critic.v4 Issue 4: extend to chapter-zero, roman numeral I, and common
+        # first-chapter labels that don't use the number "1".
         _FIRST_CHAPTER_RE = _re.compile(
-            r'^(chapter\s*1\b|module\s*1\b|unit\s*1\b|introduction\b)',
+            r'^(chapter|module|unit|part|lesson)\s*(0|1|i|one|first)\b'
+            r'|^(introduction|foundations?|fundamentals?|getting\s+started)\b',
             _re.IGNORECASE,
         )
         for seg in evaluated_segments:
             if getattr(seg, 'segment_type', '') == 'instructional':
                 if _FIRST_CHAPTER_RE.match(getattr(seg, 'heading', '') or ''):
                     return False
+        # Fallback: a file with very few instructional segments and no TOC signal
+        # is almost certainly a fragment — treat it as partial regardless.
+        instructional_count = sum(
+            1 for s in evaluated_segments
+            if getattr(s, 'segment_type', '') == 'instructional'
+        )
+        if instructional_count <= 3 and not non_instructional_segments:
+            return True
         return True
 
     def _call_claude_course(self, system_prompt: str, user_prompt: str) -> CourseAssessment:
