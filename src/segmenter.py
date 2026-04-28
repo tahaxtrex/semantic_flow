@@ -127,7 +127,7 @@ _PREFACE_HEADING_RE = re.compile(
 # ADR-040: Prose-density check for reference_table classification.
 _BULLET_LINE_RE = re.compile(r'^\s*(?:[-*•●◦▪‣·]|\d+[.)])\s')
 _CODE_BLOCK_RE = re.compile(r'\[CODE\].*?\[/CODE\]', re.DOTALL)
-_TABLE_ANNOTATION_RE = re.compile(r'\[TABLE:[^\]]*\]', re.DOTALL)
+_TABLE_ANNOTATION_RE = re.compile(r'\[TABLE:(.*?)\]', re.DOTALL)
 
 
 def _compute_prose_density(text: str) -> float:
@@ -141,6 +141,18 @@ def _compute_prose_density(text: str) -> float:
     if not text:
         return 0.0
     total = len(text)
+
+    # Detect miswrapped prose masquerading as table content
+    prose_in_tables = 0
+    # Ensure _TABLE_ANNOTATION_RE uses a capture group: r'\[TABLE:(.*?)\]'
+    for match in _TABLE_ANNOTATION_RE.finditer(text):
+        table_content = match.group(1)
+        for line in table_content.splitlines():
+            # Heuristic: A line inside a table with >10 words is likely prose.
+            # (Note: This threshold should be empirically validated against a dataset of known tables)
+            if len(line.split()) > 10:
+                prose_in_tables += len(line)
+
     # strip table annotations (pdfplumber-injected markers)
     stripped = _TABLE_ANNOTATION_RE.sub('', text)
     # strip [CODE]...[/CODE] regions
@@ -150,7 +162,7 @@ def _compute_prose_density(text: str) -> float:
         ln for ln in stripped.splitlines()
         if ln.strip() and not _BULLET_LINE_RE.match(ln)
     ]
-    prose_chars = sum(len(ln) for ln in prose_lines)
+    prose_chars = sum(len(ln) for ln in prose_lines) + prose_in_tables
     return prose_chars / total if total else 0.0
 # ADR-029 (critic.v3 Issue 1): Bold labels that are too common to be headings
 _BOLD_LABEL_EXCLUSIONS = frozenset({
@@ -175,7 +187,7 @@ _KNOWN_RUNNING_HEADERS: frozenset = frozenset({
 # critic.v2.md Issue 2 — end-of-chapter structural patterns that should NOT be
 # scored as instructional content.
 _GLOSSARY_HEADING_PATTERNS = [
-    re.compile(r'^(key\s+terms?|glossary)$', re.IGNORECASE),
+    re.compile(r'^(key\s+terms?|glossary|definitions?|terminology|key\s+vocabulary)$', re.IGNORECASE),
 ]
 _SUMMARY_HEADING_PATTERNS = [
     re.compile(r'^(summary|chapter\s+summary|module\s+summary|section\s+summary)$', re.IGNORECASE),
@@ -1152,6 +1164,19 @@ class SmartSegmenter:
             if self._is_before_first_chapter(block_index):
                 return "preface"
 
+        # critic.v4 Issue 2: Tier 0 assigns the heading "Frontmatter" to pages
+        # before Chapter 1. If that block reads like a course/book introduction
+        # (preface signals in body text), classify it as "preface" rather than
+        # "frontmatter" so the Course Gate receives the structural context.
+        if heading_l == "frontmatter" and self._is_before_first_chapter(block_index):
+            _PREFACE_BODY_SIGNALS = (
+                "this book", "this course", "this text", "the reader",
+                "chapter by chapter", "how to use", "who should read",
+                "what you will learn", "welcome", "purpose of this",
+            )
+            if sum(1 for phrase in _PREFACE_BODY_SIGNALS if phrase in text.lower()) >= 2:
+                return "preface"
+
         # Reference table — two independent paths (ADR-040):
         #
         # Path 1 (heading-authoritative): an explicit heading like "Appendix A",
@@ -1163,12 +1188,13 @@ class SmartSegmenter:
             if pat.search(heading_l):
                 return "reference_table"
 
-        # Path 2 (body-driven, ADR-040): only fire when the body has ≥4
-        # [TABLE:] markers AND prose density is ≤ 60%. This prevents prose-
-        # heavy instructional chapters (e.g. an SQL chapter with 5 syntax
-        # tables) from being silently bypassed as reference_table.
+        # Path 2 (body-driven, ADR-040): only fire when the body has ≥2
+        # [TABLE:] markers AND prose density is ≤ 75%. Threshold raised from
+        # 0.60 (critic.v4 Issue 2) — a genuine reference table is mostly
+        # non-prose; 40% plain text was too loose and caught instructional
+        # chapters that happen to contain several syntax tables.
         prose_density = _compute_prose_density(text)
-        if text.count("[TABLE:") >= 4 and prose_density <= 0.60:
+        if text.count("[TABLE:") >= 2 and prose_density <= 0.75:
             return "reference_table"
 
         # Solution: heading says answer/solution
@@ -1208,8 +1234,14 @@ class SmartSegmenter:
             if pat.match(heading_l):
                 return "glossary"
 
-        # Glossary body fallback
-        if re.search(r'(^|\n)key\s+terms(\n|$)', text[:200], re.IGNORECASE):
+        # Glossary body fallback (critic.v4 Issue 2): scan the full segment
+        # for definition-list structure rather than probing only the first 200
+        # chars for the exact phrase "key terms".
+        # A definition line looks like: "Term: explanation" or "Term — explanation"
+        _DEFINITION_LINE_RE = re.compile(
+            r'^\s*\*{0,2}[A-Z][^:—\n]{2,40}[:\u2014\u2013]\s+\S', re.MULTILINE
+        )
+        if len(_DEFINITION_LINE_RE.findall(text)) >= 5:
             return "glossary"
 
         # critic.v2.md Issue 2b — Summary heading
