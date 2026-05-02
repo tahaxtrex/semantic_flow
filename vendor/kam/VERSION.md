@@ -73,3 +73,20 @@ If the upstream schema or prompt changes break our adapter or invalidate the
 `data/cache/kam/` extraction cache, bump the cache key's `prompt_version`
 constant in `semantic_flow/src/kam/extraction_cache.py` and discard the cache
 directory.
+
+## Known technical debt: orphan cache files on version bumps
+
+The extraction cache key includes `PROMPT_VERSION` and `SCHEMA_VERSION` from
+`src/kam/extraction_cache.py`. When either constant is bumped, every previously
+written cache file at `data/cache/kam/**/*.json` becomes unreachable — the new
+keys never collide with old ones, so reads always miss and re-extract. The old
+files stay on disk forever unless someone deletes them.
+
+**Mitigation (deferred):** the cache layer needs a manual purge command, e.g.
+`python -m src.kam.extraction_cache --purge-orphans` that walks the directory,
+opens each entry, reads its `metadata.prompt_version` / `schema_version`, and
+deletes anything not matching the live constants. Until that ships, operators
+should run `rm -rf data/cache/kam/` after bumping either version constant.
+
+This is logged here (not in a TODO file) so anyone syncing a new KAM snapshot
+sees it before they touch the version constants.
