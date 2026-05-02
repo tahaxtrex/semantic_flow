@@ -135,12 +135,16 @@ def main():
 
             BATCH_SIZE = 5
             total_batches = (len(segments) + BATCH_SIZE - 1) // BATCH_SIZE
+            previous_summaries = []
             for i in range(0, len(segments), BATCH_SIZE):
                 batch = segments[i:i + BATCH_SIZE]
                 batch_num = i // BATCH_SIZE + 1
                 logger.info(f"  [Module Gate] Batch {batch_num}/{total_batches} ({len(batch)} segments)")
-                eval_batch = evaluator.evaluate_batch(metadata, batch)
+                eval_batch = evaluator.evaluate_batch(metadata, batch, previous_summaries=previous_summaries)
                 evaluated_segments.extend(eval_batch)
+                previous_summaries.extend(
+                    seg.summary for seg in eval_batch if getattr(seg, "summary", None)
+                )
 
             # Step 4: Course Gate — single capstone call (holistic rubrics)
             # Skip if no instructional segments exist: scoring from metadata alone is misleading.

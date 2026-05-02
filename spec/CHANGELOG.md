@@ -1,3 +1,71 @@
+## 2026-04-28 — Critic v5 Fixes: Index Alignment, Cross-Batch Summaries, Regex Terminator, Pipe-Stripped Word Count
+
+**Type:** Bug Fix (x4)
+
+**What changed:**
+
+- `src/segmenter.py` — `segment()`: Moved `_find_first_chapter_block_index()` to after `_merge_short_blocks()`, passing `merged_blocks` instead of `raw_blocks`. The index was previously computed on the pre-merge list but compared against post-merge `block_idx` values, causing `_is_before_first_chapter()` to produce wrong results and misroute preface-titled segments.
+
+- `src/main.py` — Module Gate batch loop: Added `previous_summaries = []` before the loop. After each `evaluate_batch()` call, extends `previous_summaries` with non-empty `seg.summary` values from the returned batch and passes the accumulated list as `previous_summaries=previous_summaries` into every subsequent call. ADR-030 cross-batch repetition detection was silently inactive because the argument was never passed.
+
+- `src/segmenter.py` — `_TABLE_ANNOTATION_RE`: Changed from `r'\[TABLE:(.*?)\]'` to `r'\[TABLE:([\s\S]*?)\n\]'`. The bare `]` terminator caused premature match truncation on any `]` inside table cell content (e.g., `arr[0]`, `[1]` citations). The closing `\n]` sequence is structurally guaranteed by the annotation builder (`f"[TABLE:\n{table_text}\n]"`), making it a safe, unique terminator. A negated character class was considered and rejected — it would cause total match failure on any `[` inside a cell.
+
+- `src/segmenter.py` — `_compute_prose_density()`: Added `clean_line = re.sub(r'\s*\|\s*', ' ', line).strip()` before the >10 word count. Pipe separators in `cell1 | cell2 | cell3` rows were counted as word tokens, inflating the count and misclassifying genuine table rows as miswrapped prose.
+
+**Why it changed:**
+
+Four structural bugs in the segmenter and pipeline orchestration found during critic.v5.md review:
+
+1. **Index mismatch** (Fix 1): Pre-merge block indices are meaningless after merging — the chapter position check was comparing incompatible lists.
+2. **Dead cross-batch context** (Fix 2): The `previous_summaries` parameter existed in `evaluate_batch` since ADR-030 but was never wired up in `main.py`, making cross-segment repetition detection a no-op for all multi-batch books.
+3. **Premature regex termination** (Fix 3): `]` inside table cell content (array subscripts, citations) silently truncated `_TABLE_ANNOTATION_RE` matches, breaking both prose density calculation and table annotation stripping.
+4. **Pipe token inflation** (Fix 4): `|` delimiters were counted as words, producing false positives in the miswrapped-prose heuristic added in ADR-045.
+
+**Affected artifacts:**
+- ADR-047, ADR-048, ADR-049, ADR-050 → New
+- TASK-070, TASK-071, TASK-072, TASK-073 → New (Completed)
+
+---
+
+## 2026-04-28 — Pipeline Critic Fixes: Double-Penalty Isolation, Prose Classifier, Partial-Course Regex (Fixes 1, 2, 4)
+
+**Type:** Bug Fix (x2) + Regex Correction (x1)
+
+**What changed:**
+
+- `src/evaluator.py` — `_build_module_batch_prompts()`: Removed `user_prompt += f"Heading: {s.heading or 'None'}\n"`. The LLM's literal heading-vs-body comparison was triggering an artificial `goal_focus` penalty on chapters whose opening prose does not mirror the heading verbatim — a penalty that rubric wording cannot suppress. The `--- SEGMENT ID ---` label and ADR-030 cross-segment context comment are preserved.
+
+- `src/segmenter.py` — `_compute_prose_density()`: Added a `prose_in_tables` accumulator. Before stripping `[TABLE:]` annotations, each capture group is scanned for lines with more than 10 words. Lines meeting the threshold are counted as miswrapped prose and their character count is added to `prose_chars`, preventing artificial density depression and `reference_table` over-classification of instructional chapters that happen to contain tables.
+
+- `src/evaluator.py` — `_FIRST_CHAPTER_RE` (inside `_detect_partial_course()`): Rewritten from a per-keyword numeric-group repetition pattern (with redundant `unit` alternations) to a clean two-arm structure: `^(chapter|module|unit|part|lesson)\s*(0|1|i|one|first)\b | ^(introduction|foundations?|fundamentals?|getting\s+started)\b`. Added `part`, `lesson`, and `first` as valid first-chapter indicators.
+
+**Why it changed:**
+
+Three bugs formed a cascading corruption chain (documented in `spec/critic_fixes.md`):
+
+1. **Double-penalty on `goal_focus`** (Fix 1): Injecting the heading into the Module Gate prompt caused the LLM to compare the heading label against the chapter body. Chapters whose opening prose motivates the topic before naming it received an undeserved `goal_focus` penalty.
+
+2. **`reference_table` over-classification** (Fix 2): `_compute_prose_density()` stripped all content inside `[TABLE:]` markers indiscriminately. When `pdfplumber` mis-tagged a text block as a table, instructional prose was excluded from the prose count, driving density below the 0.60 threshold and silently sending entire instructional chapters to the `reference_table` bypass path with zero Module Gate scores.
+
+3. **Partial-course false positives** (Fix 4): `_FIRST_CHAPTER_RE` missed "Lesson 1" and "Part 1" headings, causing files opening with these conventions to be incorrectly flagged as course fragments and receive an unwarranted scoring disclaimer.
+
+Section 3 (calibration anchors) from `critic_fixes.md` is deferred — valid 9–10 anchors require a clean pipeline signal, which Fixes 1 and 2 now provide.
+
+**Cache invalidation required:**
+
+Fixes 1 and 2 alter Module Gate scoring conditions. Run before the next evaluation:
+```
+rm data/output/*_evaluation.json
+```
+
+**Affected artifacts:**
+- ADR-044, ADR-045, ADR-046 → New
+- Q-032, Q-033 → New (Open)
+- TASK-066, TASK-067, TASK-068 → New (Completed)
+- TASK-069 → New (Pending — empirical threshold validation)
+
+---
+
 ## 2026-04-15 — TOC-Driven Segmentation, Criteria-Based Scoring (ADR-041 → ADR-043)
 
 **Type:** Feature (x2) + Architectural change (x1) + Refinement (x1)

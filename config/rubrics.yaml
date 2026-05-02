@@ -22,7 +22,7 @@ module_rubrics:
       - "The content directly addresses the module's stated topic or heading"
       - "No significant off-topic digressions or filler paragraphs are present"
       - "Must-know concepts are prioritized over supplemental trivia"
-      - "The opening of the segment makes the learning intent clear"
+      - "The body of the segment delivers coherently on the topic it actually teaches — evaluated on content structure, not on whether the extracted heading label matches"
       - "The content density is appropriate — no padding, no repetition for the sake of length"
     evaluation_questions:
       - "Does every paragraph directly serve the segment's stated learning goal?"
@@ -188,10 +188,17 @@ course_rubrics:
       the skills being taught? Simply covering a topic that appears in the Learning
       Outcomes is NOT sufficient — the content must show practical application context.
       A course that teaches syntax without showing real-world usage scores low.
+      WARNING — Anti-inflation rule: The presence of a domain-labelled variable
+      (e.g. employee_salary = 50000) does NOT constitute business relevance. A course
+      that names a real-world domain but never shows a professional making a decision,
+      solving a task, or using a skill in a realistic workflow anchors at 4 (mid).
+      A score of 7+ requires demonstrated professional workflow context — a realistic
+      scenario, a real task, or an explicit bridge from the concept to professional use.
+      A 9-10 requires this consistently across the majority of modules, not just once.
     weight: 1.0
     criteria:
       - "The course connects its content to real professional tasks the target audience would face"
-      - "At least some examples or exercises use industry-relevant scenarios"
+      - "The majority of examples use industry-relevant scenarios with realistic data — not domain-labelled placeholders"
       - "The course demonstrates WHERE and HOW skills are used in practice, not just what they are"
       - "Applied projects, case studies, or industry scenarios are present"
       - "A working professional in the target role would find the content practically useful"

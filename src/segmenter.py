@@ -127,7 +127,7 @@ _PREFACE_HEADING_RE = re.compile(
 # ADR-040: Prose-density check for reference_table classification.
 _BULLET_LINE_RE = re.compile(r'^\s*(?:[-*•●◦▪‣·]|\d+[.)])\s')
 _CODE_BLOCK_RE = re.compile(r'\[CODE\].*?\[/CODE\]', re.DOTALL)
-_TABLE_ANNOTATION_RE = re.compile(r'\[TABLE:(.*?)\]', re.DOTALL)
+_TABLE_ANNOTATION_RE = re.compile(r'\[TABLE:([\s\S]*?)\n\]', re.DOTALL)
 
 
 def _compute_prose_density(text: str) -> float:
@@ -150,7 +150,8 @@ def _compute_prose_density(text: str) -> float:
         for line in table_content.splitlines():
             # Heuristic: A line inside a table with >10 words is likely prose.
             # (Note: This threshold should be empirically validated against a dataset of known tables)
-            if len(line.split()) > 10:
+            clean_line = re.sub(r'\s*\|\s*', ' ', line).strip()
+            if len(clean_line.split()) > 10:
                 prose_in_tables += len(line)
 
     # strip table annotations (pdfplumber-injected markers)
@@ -374,14 +375,16 @@ class SmartSegmenter:
 
         logger.info(f"PDF has {page_count} pages — merging short blocks...")
 
+        merged_blocks = self._merge_short_blocks(raw_blocks or [])
+
         # ADR-040: Track the index of the first chapter-like heading so that
         # preface-titled blocks appearing before it can be classified as
         # `preface` rather than `frontmatter`.
+        # Must be calculated on merged_blocks so block_idx in _classify_segment
+        # references the same list.
         self._first_chapter_block_index = self._find_first_chapter_block_index(
-            raw_blocks or []
+            merged_blocks
         )
-
-        merged_blocks = self._merge_short_blocks(raw_blocks or [])
 
         segments = []
         segment_id = 1
