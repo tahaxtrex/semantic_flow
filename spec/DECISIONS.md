@@ -1025,3 +1025,179 @@ Two `_classify_segment()` bugs surfaced during Course Gate calibration:
 - Zero API cost impact (the preface was already being read into the pipeline — it is just routed differently now).
 
 **Linked Requirements:** ADR-012, ADR-026
+
+---
+
+## ADR-044: Heading Exclusion from Module Gate Prompt
+
+**Date:** 2026-04-28
+**Status:** Accepted
+**Addresses:** critic_fixes.md Fix 1 (Double-Penalty Problem)
+
+**Context:**
+The Module Gate prompt builder explicitly injected the extracted heading (e.g., `"Heading: Chapter 3 — Database Normalization"`) into the LLM's context window for every segment. Because the heading is a compact label and the segment body is the full chapter text, the LLM inevitably performed a literal heading-vs-body comparison. When a chapter's body naturally diverges from the heading's exact wording (e.g., a chapter titled "Dependency Injection" that opens with motivating context about tight coupling), this triggered a `goal_focus` penalty on top of any legitimate content issues. Modifying the rubric criteria cannot override the LLM's innate text-comparison behavior.
+
+**Options Considered:**
+1. *Retain heading + modify rubric criteria:* Insufficient — the LLM's literal comparison behavior cannot be suppressed by rubric wording alone.
+2. *Strip heading entirely:* `goal_focus` is anchored only to the full course metadata. For a 300-page textbook this is a coarse signal. Mitigation: future update to inject module-level learning outcomes or a sanitized `[Topic Focus]` from the TOC (see Q-032).
+3. *Two-pass scoring (structural + content):* Would allow the heading only in the structural pass. Prohibitively expensive under ADR-011 and ADR-021 (batching + single-pass mandate).
+
+**Decision:**
+Strip the heading line from the segment payload in the user prompt. The `--- SEGMENT ID: {id} ---` label remains. `goal_focus` is anchored to full course metadata via the system prompt.
+
+**Consequences:**
+- Eliminates the double-penalty on `goal_focus` for chapters whose opening prose does not mirror the heading verbatim.
+- `goal_focus` signal is weaker for individual chapters within long textbooks — acceptable until module-level outcomes can be extracted and injected.
+- Cache invalidation required: all previously generated Module Gate evaluations produced under the old prompt are invalid.
+
+**Linked Requirements:** ADR-011, ADR-021, ADR-030
+
+---
+
+## ADR-045: Miswrapped Prose Detection in `_compute_prose_density`
+
+**Date:** 2026-04-28
+**Status:** Accepted
+**Addresses:** critic_fixes.md Fix 2 (Reference Table Classifier)
+
+**Context:**
+`_compute_prose_density()` (ADR-040) stripped all text within `[TABLE:]` markers from the prose character count. When `pdfplumber` misidentifies a text block surrounded by borders as a table, legitimate instructional prose is removed from the numerator, artificially tanking the density calculation and triggering the `reference_table` over-classification. These misclassified segments bypass the Module Gate entirely and receive zero scores.
+
+**Decision:**
+Before stripping table annotations, scan each `[TABLE:(.*?)]` capture group for lines with more than 10 words. A line inside a `[TABLE:]` block with more than 10 space-separated tokens is statistically likely to be miswrapped prose rather than a genuine table cell; its character count is added to `prose_chars` before the strip. The `_TABLE_ANNOTATION_RE` capture group `r'\[TABLE:(.*?)\]'` (already present in segmenter.py) is required for this extraction.
+
+**Empirical Caveat:** The 10-word threshold is a starting point. A descriptive table cell (e.g., "Returns the normalized value of the input tensor after batch processing") could exceed 10 words. Empirical analysis against a dataset of known-good tables vs. known-bad miswrapped segments is required to find the statistically valid boundary (see TASK-069, Q-033).
+
+**Consequences:**
+- Prose-heavy segments misclassified as `reference_table` due to `pdfplumber` mis-tagging now pass through to the Module Gate for scoring.
+- The 10-word threshold is a heuristic pending empirical validation.
+- Cache invalidation required: segments previously classified as `reference_table` may now score as `instructional`.
+
+**Linked Requirements:** ADR-040
+
+---
+
+## ADR-046: `_FIRST_CHAPTER_RE` Regex Expansion
+
+**Date:** 2026-04-28
+**Status:** Accepted
+**Amends:** ADR-027 (Partial-Course File Detection)
+**Addresses:** critic_fixes.md Fix 4 (Course Gate Validation)
+
+**Context:**
+The `_FIRST_CHAPTER_RE` regex in `_detect_partial_course()` had two defects:
+1. `unit` appeared in every alternation arm independently, producing redundant branches.
+2. Missing common academic formats: "Lesson 1", "Part 1", and the ordinal `first` as a chapter label (e.g., "Chapter First").
+
+**Decision:**
+Rewrite to a two-arm pattern:
+```
+r'^(chapter|module|unit|part|lesson)\s*(0|1|i|one|first)\b'
+r'|^(introduction|foundations?|fundamentals?|getting\s+started)\b'
+```
+Arm 1 shares a single numeric/ordinal group across all keyword variants. Arm 2 covers canonical first-chapter labels that carry no number.
+
+**Consequences:**
+- "Lesson 1" and "Part 1" now correctly prevent a file from being flagged as a partial course.
+- "Chapter first" / "Module 0" now match where they did not before.
+- The redundant `unit` repetition is eliminated.
+- No change to the partial-course gate logic; only the heading-matching pattern is affected.
+
+**Linked Requirements:** ADR-027
+
+---
+
+## ADR-047: `_first_chapter_block_index` Calculated on `merged_blocks`
+
+**Date:** 2026-04-28
+**Status:** Accepted
+**Amends:** ADR-040 (Preface as Distinct Segment)
+**Addresses:** critic.v5.md Fix 1
+
+**Context:**
+`_find_first_chapter_block_index()` was called on `raw_blocks` (before merging), but the `block_index` argument passed to `_classify_segment()` during the segment loop iterates over `merged_blocks` (after merging). After `_merge_short_blocks()` runs, blocks are combined and their indices shift — so `_first_chapter_block_index` pointed to a position in `raw_blocks` that no longer corresponds to the same block in `merged_blocks`. This caused `_is_before_first_chapter()` to return wrong results, misrouting preface-titled blocks as `frontmatter` or routing mid-book introductions as `preface`.
+
+**Decision:**
+In `segment()`, move the `_find_first_chapter_block_index()` call to after `_merge_short_blocks()`, passing `merged_blocks` instead of `raw_blocks`. Both the index source and the iteration target are now the same list.
+
+**Consequences:**
+- `_is_before_first_chapter()` now compares against the correct merged-block position.
+- No functional change to merge logic or classification rules — only the timing of the index calculation.
+
+**Linked Requirements:** ADR-040
+
+---
+
+## ADR-048: Cross-Batch `previous_summaries` Threading in Module Gate
+
+**Date:** 2026-04-28
+**Status:** Accepted
+**Amends:** ADR-030 (Cross-Segment Awareness)
+**Addresses:** critic.v5.md Fix 2
+
+**Context:**
+`evaluate_batch()` accepts a `previous_summaries` argument (ADR-030) to give the LLM awareness of what earlier batches covered, enabling repetition detection and non-progressive example flagging. `src/main.py` was calling `evaluate_batch(metadata, batch)` without this argument in every iteration, so the cross-batch context was silently never passed. Every batch evaluated as if it were the first, making ADR-030's cross-segment repetition detection a no-op.
+
+**Decision:**
+In `main.py`, initialize `previous_summaries = []` before the batch loop. After each `evaluate_batch()` call, extend `previous_summaries` with the `summary` field from every returned `EvaluatedSegment` that has one. Pass the accumulated list as `previous_summaries=previous_summaries` on every subsequent call.
+
+**Consequences:**
+- Cross-batch repetition detection (ADR-030) is now active as intended.
+- Each batch receives the full history of preceding segment summaries, not just the previous batch.
+- Minor token increase per batch from the accumulated summary context (bounded by total segment count).
+
+**Linked Requirements:** ADR-030
+
+---
+
+## ADR-049: `_TABLE_ANNOTATION_RE` Terminates on `\n]`
+
+**Date:** 2026-04-28
+**Status:** Accepted
+**Amends:** ADR-045 (Miswrapped Prose Detection)
+**Addresses:** critic.v5.md Fix 3
+
+**Context:**
+The original `_TABLE_ANNOTATION_RE = re.compile(r'\[TABLE:(.*?)\]', re.DOTALL)` used a bare `]` as the terminator. Any `]` inside the table content (e.g., array indexing `arr[0]`, citation brackets `[1]`) caused the lazy `.*?` to stop prematurely, truncating the table capture group and producing partial matches. A negated character class `[^\[\]]*` was considered but rejected — it would cause the regex to fail to match entirely on any `[` inside cell content (e.g., `arr[0]` stops at `[`), which is a worse failure mode.
+
+The table annotation builder always injects the closing marker as `f"[TABLE:\n{table_text}\n]"` — the `]` is invariably preceded by `\n`. This structural guarantee makes `\n]` a safe, unique terminator.
+
+**Decision:**
+`_TABLE_ANNOTATION_RE = re.compile(r'\[TABLE:([\s\S]*?)\n\]', re.DOTALL)`
+
+The capture group `[\s\S]*?` (lazy, matches any character including newlines) is bounded by `\n]`, which matches only the injected closing sequence. Internal `[` and `]` from table cell content are matched freely.
+
+**Consequences:**
+- Table blocks containing array syntax, citations, or any bracket characters are captured correctly.
+- The match is structurally anchored to the injection format — no false terminations.
+- `re.DOTALL` is retained for compatibility but is redundant given `[\s\S]`.
+
+**Linked Requirements:** ADR-040, ADR-045
+
+---
+
+## ADR-050: Pipe-Stripped Word Count in Prose-Density Heuristic
+
+**Date:** 2026-04-28
+**Status:** Accepted
+**Amends:** ADR-045 (Miswrapped Prose Detection)
+**Addresses:** critic.v5.md Fix 4
+
+**Context:**
+Table rows in `_TABLE_ANNOTATION_RE` capture groups are formatted as `cell1 | cell2 | cell3` (pipe-delimited). The >10 word heuristic in `_compute_prose_density()` called `line.split()` directly, counting each `|` separator as a word token. A four-column table row with 2–3 words per cell would be inflated by 3 phantom pipe tokens, pushing it over the 10-word threshold and misclassifying genuine table rows as miswrapped prose.
+
+**Decision:**
+Before the word count, collapse `\s*|\s*` separators to a single space:
+```python
+clean_line = re.sub(r'\s*\|\s*', ' ', line).strip()
+if len(clean_line.split()) > 10:
+    prose_in_tables += len(line)
+```
+`prose_in_tables` still accumulates `len(line)` (the original line length) for accurate character-count contribution.
+
+**Consequences:**
+- Pipe-delimited table rows are not false-positively counted as prose.
+- The 10-word threshold is now applied to semantic word count, not pipe-inflated token count.
+- `len(line)` is used for the character accumulation so the density ratio reflects actual text volume.
+
+**Linked Requirements:** ADR-045

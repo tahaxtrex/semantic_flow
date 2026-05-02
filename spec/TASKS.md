@@ -247,3 +247,40 @@ The user wants to divide the pedagogical evaluation into two distinct gates to b
 - [x] TASK-065: Update module-gate scoring procedure in `_build_module_batch_prompts()` (replace 3-step calibration with criteria-based instructions). Add course-gate scoring procedure note to `_build_course_prompts()`. Extract `criteria_scores` from LLM responses in `_match_module_evaluations()`, `_call_claude_course()`, and `_call_gemini_course()`. Add `criteria_scores: Dict[str, Any]` field to `EvaluatedSegment` and `CourseAssessment` in `models.py`.
   - Spec ref: ADR-043
   - Blocked by: TASK-064
+
+## Phase: Critic v4 Pipeline Fixes
+
+- [x] TASK-066: Remove heading line from Module Gate user prompt in `_build_module_batch_prompts()`.
+  - Spec ref: ADR-044, critic_fixes.md Fix 1
+  - Notes: Deleted `user_prompt += f"Heading: {s.heading or 'None'}\n"` from `src/evaluator.py`. The `--- SEGMENT ID ---` label and ADR-030 cross-segment context comment are preserved. Cache invalidation required before next pipeline run.
+
+- [x] TASK-067: Add miswrapped prose detection to `_compute_prose_density()` in `src/segmenter.py`.
+  - Spec ref: ADR-045, critic_fixes.md Fix 2
+  - Notes: Added `prose_in_tables` accumulator. Before stripping `[TABLE:]` annotations, each `_TABLE_ANNOTATION_RE` capture group is scanned; lines with >10 words are counted as prose. `prose_chars` now includes `prose_in_tables`. The 10-word threshold requires empirical validation (see TASK-069, Q-033). Cache invalidation required — segments previously misclassified as `reference_table` may now score as `instructional`.
+
+- [x] TASK-068: Rewrite `_FIRST_CHAPTER_RE` in `_detect_partial_course()` to add `part`/`lesson`/`first` and remove duplicate `unit` repetition.
+  - Spec ref: ADR-046, critic_fixes.md Fix 4
+  - Notes: In `src/evaluator.py`, the compile block is now a two-arm pattern. Arm 1: `^(chapter|module|unit|part|lesson)\s*(0|1|i|one|first)\b`. Arm 2: `^(introduction|foundations?|fundamentals?|getting\s+started)\b`. The per-keyword repetition of the numeric group is eliminated.
+
+- [ ] TASK-069: Empirically validate the 10-word prose-in-table detection threshold in `_compute_prose_density()`.
+  - Spec ref: ADR-045, Q-033
+  - Notes: Assemble a dataset of known-good `[TABLE:]` blocks (genuine pdfplumber-detected tables) and known-bad ones (miswrapped prose mis-tagged by pdfplumber). Compare line-length distributions to find the statistically valid boundary. Update the constant in `_compute_prose_density()` or expose it as a configurable `SmartSegmenter` parameter.
+  - Blocked by: representative multi-PDF test set
+
+## Phase: Critic v5 Pipeline Fixes
+
+- [x] TASK-070: Fix `_first_chapter_block_index` index mismatch in `segment()`.
+  - Spec ref: ADR-047, critic.v5.md Fix 1
+  - Notes: Moved `_find_first_chapter_block_index()` call in `src/segmenter.py` to after `_merge_short_blocks()`. Now passes `merged_blocks` instead of `raw_blocks or []` so the stored index references the same list iterated in the segment loop.
+
+- [x] TASK-071: Thread `previous_summaries` between `evaluate_batch` calls in `src/main.py`.
+  - Spec ref: ADR-048, critic.v5.md Fix 2
+  - Notes: Added `previous_summaries = []` before the batch loop. After each `evaluate_batch()` call, extended `previous_summaries` with `seg.summary` for each returned segment that has one. Passed `previous_summaries=previous_summaries` into every subsequent call, activating the cross-batch repetition detection introduced in ADR-030.
+
+- [x] TASK-072: Fix `_TABLE_ANNOTATION_RE` to terminate on `\n]` instead of bare `]`.
+  - Spec ref: ADR-049, critic.v5.md Fix 3
+  - Notes: Changed `r'\[TABLE:(.*?)\]'` to `r'\[TABLE:([\s\S]*?)\n\]'` in `src/segmenter.py`. The closing `\n]` sequence is always injected by the table annotation builder, making it a safe, structurally guaranteed terminator. Internal `[` and `]` in cell content (e.g., `arr[0]`, citations) no longer cause premature termination. A negated character class `[^\[\]]*` was considered and rejected — it would fail entirely on any `[` inside a cell.
+
+- [x] TASK-073: Strip pipe separators before >10 word count in `_compute_prose_density()`.
+  - Spec ref: ADR-050, critic.v5.md Fix 4
+  - Notes: Added `clean_line = re.sub(r'\s*\|\s*', ' ', line).strip()` before the word count check in `src/segmenter.py`. The `if len(clean_line.split()) > 10` guard uses the pipe-stripped version; `prose_in_tables += len(line)` still uses the original line for accurate character accumulation.

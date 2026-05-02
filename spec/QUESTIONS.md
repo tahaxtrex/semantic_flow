@@ -276,3 +276,23 @@ Corrected Split:
 **Answer:** **30,000 words** (≈40,000 tokens at ~1.3 tokens/word). This is a conservative proxy — well under the 200k context window of Claude Opus 4.6 and Gemini 2.5 Flash, but large enough that no ordinary chapter ever hits the ceiling. Pathological 40k-word "everything" chapters still get chunked safely at paragraph boundaries.
 **Impact:** ADR-037, `src/segmenter.py`
 
+---
+
+# Phase 5: Critic v4 Pipeline Fixes
+
+## Q-032: Module-Level Topic Focus as `goal_focus` Anchor
+**Phase:** Critic v4 Fixes
+**Date:** 2026-04-28
+**Status:** Open
+
+**Question:** ADR-044 strips the heading from the Module Gate prompt to eliminate the literal heading-vs-body double penalty. This leaves `goal_focus` anchored only to the full course metadata. For a 300-page textbook that signal is extremely coarse (e.g., scoring a "Database Normalization" chapter against "Foundations of Information Systems"). Should we extract module-level learning outcomes or a sanitized `[Topic Focus]` derived from the TOC and inject it as a chapter-scoped anchor — providing local context without triggering the LLM's literal heading-vs-body comparison behavior?
+**Impact:** ADR-044, `src/evaluator.py`, potentially `src/metadata.py`
+
+## Q-033: Empirical Threshold for Prose-in-Table Detection
+**Phase:** Critic v4 Fixes
+**Date:** 2026-04-28
+**Status:** Open
+
+**Question:** Fix 2 (`_compute_prose_density`) uses a >10 word heuristic to detect miswrapped prose inside `[TABLE:]` markers. A descriptive table cell could exceed 10 words legitimately (e.g., "Returns the normalized value of the input tensor after batch processing"). Before this threshold is finalized, what methodology should be used to find the statistically valid boundary — a held-out dataset of known-good tables vs. known-bad miswrapped segments, a character-length distribution analysis, or something else? Should the threshold be exposed as a configurable parameter?
+**Impact:** ADR-045, `src/segmenter.py`, TASK-069
+
