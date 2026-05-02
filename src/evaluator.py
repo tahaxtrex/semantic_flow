@@ -1,3 +1,4 @@
+import contextvars
 import json
 import logging
 import os
@@ -5,9 +6,9 @@ import sys
 import time
 import yaml
 from pathlib import Path
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError, model_validator
 
-from typing import List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 
 from anthropic import Anthropic
 from google import genai
@@ -18,8 +19,27 @@ from src.models import (
     EvaluatedSegment, ModuleScores, ModuleReasoning,
     CourseAssessment, CourseScores, CourseReasoning,
 )
+from src.kam.adapter import KAMAdapter
+from src.kam.models import Finding, ModuleGraphReport
+from src.kam.sanitize import sanitize_text
 
 logger = logging.getLogger(__name__)
+
+
+# Per-rubric score caps activated when the corresponding finding code fires.
+# Mirrors the `findings_grounding` block planned for config/rubrics.yaml; kept
+# here so the contract is enforced even if the YAML hasn't been updated yet.
+_RUBRIC_FINDING_CAPS: Dict[str, Dict[str, int]] = {
+    "goal_focus": {"LOAD-003": 6, "STR-001": 4},
+    "pedagogical_clarity": {"STR-002": 4, "STR-001": 4},
+}
+
+# ContextVar threading: evaluate_batch() sets a {segment_id: [Finding, ...]} map
+# before the LLM call so the response model's @model_validator can enforce
+# per-segment score caps without piggy-backing on the tool-call payload.
+_CURRENT_SEGMENT_FINDINGS: contextvars.ContextVar[
+    Dict[int, List[Finding]]
+] = contextvars.ContextVar("_CURRENT_SEGMENT_FINDINGS", default={})
 
 # Schema for a single rubric's 5 criteria scores (each 0/1/2).
 # Defined at module level so it is accessible from class-body dict comprehensions.
@@ -32,6 +52,67 @@ _CRITERION_SCHEMA = {
 # Per-batch retry budget for the selected model.
 MAX_RETRIES_PER_BATCH = 3
 RETRY_BACKOFF_SECONDS = 5  # doubles each attempt: 5s → 10s → 20s
+
+
+class _ModuleEvalScores(BaseModel):
+    """Scores object inside a single module evaluation. Mirrors ModuleScores
+    shape but lives here purely so the wrapper can enforce cross-field caps."""
+
+    goal_focus: int
+    text_readability: int
+    pedagogical_clarity: int
+    example_concreteness: int
+    example_coherence: int
+
+
+class _ModuleEvalItem(BaseModel):
+    """One element of the LLM's `evaluations` array. Only the fields needed
+    for cap enforcement are typed strictly; the rest are accepted as-is."""
+
+    segment_id: int
+    summary: str = ""
+    scores: _ModuleEvalScores
+    criteria_scores: Dict = {}
+    reasoning: Dict = {}
+    acknowledged_findings: List[str] = []
+
+
+class _ModuleEvalResponse(BaseModel):
+    """Wraps the LLM's tool-call payload so a Pydantic validator can enforce
+    score caps and finding acknowledgement BEFORE the result is consumed.
+
+    Validation failure raises ValueError → ValidationError, which the existing
+    `_retry_call` mechanism (lines 144-177) catches and retries.
+    """
+
+    evaluations: List[_ModuleEvalItem]
+
+    @model_validator(mode="after")
+    def _enforce_finding_score_caps(self) -> "_ModuleEvalResponse":
+        per_seg = _CURRENT_SEGMENT_FINDINGS.get({})
+        if not per_seg:
+            return self
+        for ev in self.evaluations:
+            findings = per_seg.get(ev.segment_id, [])
+            if not findings:
+                continue
+            seg_codes = {f.code for f in findings}
+            ack = set(ev.acknowledged_findings or [])
+            missing = seg_codes - ack
+            if missing:
+                raise ValueError(
+                    f"segment {ev.segment_id}: missing acknowledgments for "
+                    f"{sorted(missing)} (received {sorted(ack)})"
+                )
+            for rubric, cap_table in _RUBRIC_FINDING_CAPS.items():
+                rubric_score = getattr(ev.scores, rubric)
+                for code, cap in cap_table.items():
+                    if code in seg_codes and rubric_score > cap:
+                        raise ValueError(
+                            f"segment {ev.segment_id}: {rubric}={rubric_score} "
+                            f"violates cap {cap} from {code}"
+                        )
+        return self
 
 
 class LLMEvaluator:
@@ -75,6 +156,17 @@ class LLMEvaluator:
             self.anthropic_client = None
         else:
             raise ValueError(f"Unsupported model requested: {self.preferred_model}")
+
+        # KAM Module-Gate grounding. Kept lazy so tests / offline runs that
+        # never touch evaluate_batch don't require a Gemini key.
+        self.kam: Optional[KAMAdapter] = None
+        try:
+            self.kam = KAMAdapter()
+        except Exception as exc:
+            logger.warning(
+                "KAMAdapter unavailable (%s); Module Gate will run without graph grounding.",
+                exc,
+            )
 
     def _load_rubrics(self) -> Tuple[str, str]:
         """Load rubrics from YAML and store parsed objects + formatted prompt strings."""
@@ -294,8 +386,21 @@ class LLMEvaluator:
                                 "properties": {f: {"type": "string"} for f in _MODULE_RATIONALE_FIELDS},
                                 "required": _MODULE_RATIONALE_FIELDS,
                             },
+                            "acknowledged_findings": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "List of KAM finding codes the evaluator observed for this "
+                                    "segment (e.g., 'LOAD-003'). MUST contain every code listed "
+                                    "in the segment's <KAM_GRAPH_CONTEXT> block. Score caps "
+                                    "implied by these findings MUST NOT be exceeded."
+                                ),
+                            },
                         },
-                        "required": ["segment_id", "summary", "scores", "criteria_scores", "reasoning"],
+                        "required": [
+                            "segment_id", "summary", "scores", "criteria_scores",
+                            "reasoning", "acknowledged_findings",
+                        ],
                     },
                 }
             },
@@ -414,6 +519,97 @@ This summary will be used as the primary input to a subsequent holistic course-l
     # MODULE GATE — Execution
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _format_kam_graph_context(reports: List[ModuleGraphReport]) -> str:
+        """Render per-segment KAM findings as a single appendable system-prompt block.
+
+        Findings are presented as structured *context* (per spec §0.5: never as
+        ground truth). Empty input → empty string so the existing prompt is
+        unchanged when KAM is disabled.
+        """
+        if not reports:
+            return ""
+        lines: List[str] = [
+            '<KAM_GRAPH_CONTEXT tier="extracted" provisional="true">',
+            (
+                "Structural observations were extracted by an automated graph extractor "
+                "and validated by deterministic graph algorithms. They are NOT ground "
+                "truth: the extraction itself is LLM-based and may be incomplete or "
+                "wrong. Use them as evidence to weigh, not as facts to obey."
+            ),
+            "",
+        ]
+        for report in reports:
+            lines.append(f"  Segment {report.segment_id}:")
+            meta = report.extraction_metadata
+            lines.append(
+                f"    extractor={sanitize_text(meta.extractor_model, max_length=80)}, "
+                f"concepts={meta.extraction_concept_count}, "
+                f"prereq_edges={len(report.prereq_edges)}"
+            )
+            if not report.findings:
+                lines.append("    findings: none")
+                lines.append("")
+                continue
+            lines.append("    findings:")
+            for f in report.findings:
+                why = sanitize_text(f.why, max_length=400)
+                affected = ", ".join(
+                    sanitize_text(c, max_length=80) for c in f.affected_concepts
+                )
+                evidence_str = "; ".join(
+                    f"chars {ev.span_start}-{ev.span_end}" for ev in f.evidence
+                )
+                lines.append(
+                    f"      - {f.code} (validator={f.validator_id}, "
+                    f"severity={f.severity}, confidence={f.confidence}, "
+                    f"provisional=yes): {why}"
+                )
+                if affected:
+                    lines.append(f"        affected: {affected}")
+                if evidence_str:
+                    lines.append(f"        evidence: {evidence_str}")
+            lines.append("")
+
+        # Score caps reference table — surface the contract the response wrapper enforces.
+        lines.append("  Score caps from these findings:")
+        for rubric, cap_table in _RUBRIC_FINDING_CAPS.items():
+            for code, cap in cap_table.items():
+                lines.append(f"    - {code} → {rubric} ≤ {cap}")
+        lines.extend([
+            "",
+            "  You MUST list every finding code above in `acknowledged_findings`",
+            "  for each affected segment. You MUST NOT exceed the score caps.",
+            "  Failure to comply will be retried.",
+            "</KAM_GRAPH_CONTEXT>",
+        ])
+        return "\n".join(lines)
+
+    def _run_kam_for_segments(
+        self,
+        metadata: CourseMetadata,
+        segments: List[Segment],
+    ) -> List[ModuleGraphReport]:
+        if self.kam is None:
+            return []
+        reports: List[ModuleGraphReport] = []
+        for seg in segments:
+            try:
+                report = self.kam.process_segment(
+                    seg,
+                    course_title=getattr(metadata, "title", None),
+                    chapter_title=seg.heading,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "KAM processing crashed for segment %s: %s; continuing without grounding.",
+                    seg.segment_id,
+                    exc,
+                )
+                continue
+            reports.append(report)
+        return reports
+
     def _make_incomplete_segment(self, segment: Segment) -> EvaluatedSegment:
         return EvaluatedSegment(
             segment_id=segment.segment_id,
@@ -482,7 +678,10 @@ This summary will be used as the primary input to a subsequent holistic course-l
             tool_choice={"type": "tool", "name": "submit_module_evaluations"},
         )
         tool_block = next(b for b in response.content if b.type == "tool_use")
-        data = tool_block.input["evaluations"]
+        # Validate through the score-cap-enforcing wrapper. Failures raise
+        # ValidationError → caught by _retry_call → retried.
+        wrapped = _ModuleEvalResponse.model_validate(tool_block.input)
+        data = [item.model_dump() for item in wrapped.evaluations]
         return self._match_module_evaluations(data, segments)
 
     def _call_gemini_module_batch(self, system_prompt: str, user_prompt: str, segments: List[Segment]) -> List[EvaluatedSegment]:
@@ -503,6 +702,8 @@ This summary will be used as the primary input to a subsequent holistic course-l
         except Exception as e:
             logger.error(f"[Module Gate] Gemini JSON parse/unwrap failed: {e}. Raw response: {response.text[:500]}")
             raise
+        wrapped = _ModuleEvalResponse.model_validate({"evaluations": data})
+        data = [item.model_dump() for item in wrapped.evaluations]
         return self._match_module_evaluations(data, segments)
 
     def evaluate_batch(self, metadata: CourseMetadata, segments: List[Segment],
@@ -538,10 +739,23 @@ This summary will be used as the primary input to a subsequent holistic course-l
 
         if not instructional_segments:
             return sorted(results, key=lambda x: x.segment_id)
-
+            
+        # 1. Run KAM Graph Extraction and Validation
+        kam_reports = self._run_kam_for_segments(metadata, instructional_segments)
+        
+        # 2. Build the LLM Prompts
         system_prompt, user_prompt = self._build_module_batch_prompts(
             metadata, instructional_segments, previous_summaries
         )
+        
+        # 3. Thread KAM Context into System Prompt
+        kam_context_block = self._format_kam_graph_context(kam_reports)
+        if kam_context_block:
+            system_prompt = f"{kam_context_block}\n\n{system_prompt}"
+            
+        # 4. Set ContextVar for Pydantic Score-Cap Enforcement
+        per_seg_findings = {r.segment_id: r.findings for r in kam_reports}
+        token = _CURRENT_SEGMENT_FINDINGS.set(per_seg_findings)
 
         try:
             if self.anthropic_client:
@@ -565,6 +779,15 @@ This summary will be used as the primary input to a subsequent holistic course-l
                 f"marking as incomplete. Error: {e}"
             )
             evals = [self._make_incomplete_segment(s) for s in instructional_segments]
+        finally:
+            _CURRENT_SEGMENT_FINDINGS.reset(token)
+            
+        # 5. Attach KAM findings and consistency caveats to the EvaluatedSegments
+        for ev in evals:
+            report = next((r for r in kam_reports if r.segment_id == ev.segment_id), None)
+            if report:
+                ev.findings = report.findings
+            ev.consistency_caveats.append("course_gate_ungrounded_v1")
 
         results.extend(evals)
         return sorted(results, key=lambda x: x.segment_id)
